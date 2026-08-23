@@ -134,6 +134,121 @@ export class QualflareHttpClient {
   }
 }
 
+export interface UploadUrlResult {
+  storageKey: string;
+  uploadUrl: string;
+}
+
+/** Requests a presigned R2 upload URL for a video attachment via
+ * `POST /api/v1/attachments/upload-url` — the standalone endpoint a
+ * reporter calls before a video's owning Case has even been reported (see
+ * `Attachment.storageKey`'s doc comment in shared/types.ts). Same retry
+ * policy as `send()` (429/500/502/503/504, exponential backoff + jitter),
+ * deliberately reimplemented rather than shared: no Idempotency-Key here
+ * (a retried presign just mints an extra, harmless, never-referenced key,
+ * unlike a retried /collect POST which could duplicate a whole launch), and
+ * factoring the two into one generic helper isn't worth risking `send()`'s
+ * already-tested behavior for a second, low-frequency call site. */
+export async function requestUploadUrl(
+  opts: SendOptions,
+  filename: string,
+  mimeType: string,
+  fileSize: number,
+): Promise<UploadUrlResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/api/v1/attachments/upload-url`;
+  const body = JSON.stringify({ filename, mimeType, fileSize });
+  const maxAttempts = Math.max(1, opts.retry.max + 1);
+
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (opts.debug) {
+      logger.debug(`POST ${url} (attempt ${attempt}/${maxAttempts}, QF_TOKEN: ${redactToken(opts.token)})`);
+    }
+
+    let statusCode: number;
+    let responseBody: string;
+    let responseHeaders: Record<string, string | string[] | undefined>;
+    try {
+      const res = await request(url, {
+        method: 'POST',
+        headers: {
+          [HEADER_TOKEN]: opts.token,
+          [HEADER_CONTENT_TYPE]: 'application/json',
+          [HEADER_ACCEPT]: 'application/json',
+          [HEADER_USER_AGENT]: opts.userAgent,
+        },
+        body,
+        maxRedirections: 0,
+        signal: AbortSignal.timeout(opts.timeoutMs),
+      });
+      statusCode = res.statusCode;
+      responseHeaders = res.headers;
+      responseBody = await res.body.text();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await sleep(computeDelay(attempt, opts.retry.baseDelayMs, opts.retry.maxDelayMs));
+        continue;
+      }
+      throw new QualflareApiError({ message: `failed to send request to ${url}`, cause: err });
+    }
+
+    if (statusCode >= 200 && statusCode < 300) {
+      try {
+        const parsed = JSON.parse(responseBody) as UploadUrlResult;
+        if (typeof parsed.storageKey !== 'string' || typeof parsed.uploadUrl !== 'string') {
+          throw new Error('response body missing "storageKey"/"uploadUrl"');
+        }
+        return parsed;
+      } catch (err) {
+        throw new QualflareApiError({
+          message: 'server returned a success status but an unparseable upload-url body',
+          cause: err,
+        });
+      }
+    }
+
+    const parsedError = parseErrorBody(responseBody);
+    if (!RETRYABLE_STATUS_CODES.has(statusCode) || attempt === maxAttempts) {
+      throw buildApiError(statusCode, parsedError);
+    }
+
+    const retryAfterMs = parseRetryAfter(responseHeaders['retry-after']);
+    await sleep(computeDelay(attempt, opts.retry.baseDelayMs, opts.retry.maxDelayMs, retryAfterMs));
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new QualflareApiError({ message: 'request failed for an unknown reason' });
+}
+
+/** PUTs `body` directly to a presigned R2 URL obtained from
+ * `requestUploadUrl()`. Deliberately a single attempt, no retry: a
+ * presigned-URL PUT failing is rare, and video upload is best-effort by
+ * design (see `video-uploader.ts`) — the caller logs and skips rather than
+ * retrying, keeping this path simple. No auth header: the URL itself is the
+ * credential, and it points at R2, not the Qualflare API. */
+export async function putObject(uploadUrl: string, body: Buffer, mimeType: string, timeoutMs: number): Promise<void> {
+  const res = await request(uploadUrl, {
+    method: 'PUT',
+    headers: { [HEADER_CONTENT_TYPE]: mimeType },
+    body,
+    maxRedirections: 0,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    const responseBody = await res.body.text();
+    throw new QualflareApiError({
+      message: `upload PUT failed with status ${res.statusCode}${responseBody ? `: ${responseBody.slice(0, 500)}` : ''}`,
+      statusCode: res.statusCode,
+    });
+  }
+  // Drain the body even on success — undici requires the response body to be
+  // consumed before the connection can be reused/closed cleanly.
+  await res.body.text();
+}
+
 function parseSuccess(responseBody: string): CollectResult {
   try {
     const parsed = JSON.parse(responseBody) as CollectResult;

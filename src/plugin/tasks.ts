@@ -78,15 +78,14 @@ export function registerTasks(
   testPhaseGate: TestPhaseGate,
 ): void {
   on('task', {
-    [TASK_REPORT_CASE](testCase: Case): null {
+    async [TASK_REPORT_CASE](testCase: Case): Promise<null> {
       // Merge screenshots captured Node-side during this test (via
       // after:screenshot) with any attachments the browser side already
-      // set directly on the Case (e.g. a future author-provided attachment
-      // with inline content — not populated by anything yet in this
-      // milestone, but resolveAttachments already passes those through
-      // unchanged since they carry `content`, not just a `path`).
+      // set directly on the Case (e.g. a `qualflare.attachmentFromFile()`
+      // call, which carries only a `path` — resolveAttachments reads/
+      // uploads it here, same as a screenshot).
       const attachments = [...(testCase.attachments ?? []), ...pendingAttachments.drain()];
-      const resolved = resolveAttachments(
+      const resolved = await resolveAttachments(
         attachments.length > 0 ? attachments : undefined,
         attachmentConfig,
         attachmentBudget,

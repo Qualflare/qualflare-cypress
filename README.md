@@ -81,8 +81,9 @@ branch/commit, CI provider/build/PR, browser/OS) in [`docs/CONFIGURATION.md`](./
 
 ## Known limitations
 
-- **No video upload** — Qualflare has no blob/video-attachment storage yet.
-- **One `cypress run` process uploads as one Launch** — sharded CI setups get multiple Launches.
+- **One `cypress run` process uploads as one Launch by default** — sharded CI setups get multiple
+  Launches unless you merge them via `outputFile` + `qualflare-cli --shard` (see
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)).
 - **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
   supports arbitrary nesting depth.
 

@@ -29,7 +29,16 @@ export type CaseStatus =
   | 'aborted'
   | 'pending';
 
-export type FrameworkCategory = 'unit' | 'bdd' | 'e2e' | 'api' | 'security' | 'generic';
+/**
+ * The server's oneof accepts a value named after any of the ~23 frameworks it
+ * auto-detects (e.g. "cypress"), not just the six coarse buckets below — a
+ * suite's category is meant to say exactly which tool produced it, which is
+ * what lets the UI show that tool's own logo. This reporter only ever emits
+ * 'cypress' (see events.ts), so that's the only tool-specific value listed
+ * here; the six buckets remain for backward compatibility / servers that
+ * haven't been upgraded.
+ */
+export type FrameworkCategory = 'cypress' | 'unit' | 'bdd' | 'e2e' | 'api' | 'security' | 'generic';
 
 export type CasePriority = 'low' | 'medium' | 'high' | 'critical';
 
@@ -93,8 +102,17 @@ export interface Attachment {
   /** Optional, max 255 chars. */
   mimeType?: string;
   /** Base64-encoded content, max 2,097,152 characters (~1.5MB decoded binary).
-   * Inline only — there is no external/blob-URL attachment support yet. */
+   * Mutually exclusive with `storageKey` — used for small inline attachments
+   * (screenshots). */
   content?: string;
+  /** R2 object key from a prior `POST /api/v1/attachments/upload-url` call —
+   * mutually exclusive with `content`. Used for attachments too large to
+   * inline (video); if both are set, `storageKey` wins server-side. Max 1024
+   * chars. */
+  storageKey?: string;
+  /** Byte size of the object at `storageKey`. Ignored when `storageKey` is
+   * unset. */
+  fileSize?: number;
   /** 0-based index into the Case's `steps[]` this attachment belongs to.
    * Omit for a case-level (not step-level) attachment. */
   stepIndex?: number;

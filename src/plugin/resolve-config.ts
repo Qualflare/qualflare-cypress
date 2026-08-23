@@ -1,3 +1,4 @@
+import { MAX_VIDEO_UPLOAD_BYTES } from '../shared/constants.js';
 import type { Platform } from '../shared/types.js';
 import { detectCi, type CiMetadata } from './ci-detect.js';
 import { detectGit, type GitInfo } from './git-detect.js';
@@ -34,11 +35,30 @@ export interface QualflareCypressOptions {
   attachScreenshots?: boolean;
   maxAttachmentBytes?: number;
   maxTotalAttachmentBytes?: number;
+  /** Upload a spec's failure video recording (Cypress's own `video: true`
+   * output) to the failing test's attachments. Only uploaded when at least
+   * one case in the spec failed — a video from an all-passing spec has
+   * little diagnostic value and isn't worth the upload. Default `true`. */
+  uploadVideos?: boolean;
+  /** Per-video byte cap, checked before upload (via `fs.statSync`, never by
+   * reading the file first). Default 50MB, matching the server's own hard
+   * cap — raising this past 50MB only wastes an upload attempt the server
+   * will reject. */
+  maxVideoBytes?: number;
   debug?: boolean;
   /** `false` fully disables accumulation/POST (a complete no-op) but still
    * registers no-op `on('task', ...)` handlers so `cy.task()` calls from the
    * browser side never error with "no handler registered for task." */
   enabled?: boolean;
+  /** When set, `after:run` writes the built `Collect` JSON to this path
+   * instead of POSTing it — no HTTP client is constructed, no `token` is
+   * required (see `resolveConfig`'s token check below). For CI setups that
+   * shard a run across multiple independent processes/machines (each one an
+   * independent Launch otherwise — see docs/LIMITATIONS.md): give each
+   * shard's job a unique path here, upload the file as a CI artifact, then
+   * merge + upload all shards once via `qualflare-cli upload --shard
+   * <files...>`. */
+  outputFile?: string;
 }
 
 export interface ResolvedPluginConfig {
@@ -64,8 +84,11 @@ export interface ResolvedPluginConfig {
   attachScreenshots: boolean;
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
+  uploadVideos: boolean;
+  maxVideoBytes: number;
   debug: boolean;
   enabled: boolean;
+  outputFile?: string;
 }
 
 function firstEnv(...names: string[]): string | undefined {
@@ -140,9 +163,19 @@ export function resolveConfig(
   const doDetectCi = deps.detectCi ?? detectCi;
 
   const enabled = options.enabled ?? envBool('QUALFLARE_ENABLED') ?? true;
+  // `||`, not `??` — matching `environment`/`language` below: an explicit
+  // `outputFile: ''` must fall through exactly like an unset option, not be
+  // treated as "set" by the token check above while every actual write site
+  // (events.ts/formatter.ts) treats it as falsy and silently falls back to
+  // the normal POST path with an empty token.
+  const outputFile = options.outputFile || firstEnv('QUALFLARE_OUTPUT_FILE');
 
   const token = options.token ?? firstEnv('QUALFLARE_TOKEN', 'QF_TOKEN') ?? '';
-  if (enabled && token === '') {
+  // In file-output mode nothing is ever POSTed by this process — a separate
+  // qualflare-cli run merges/uploads the written file later, with its own
+  // token — so requiring one here would block a legitimate CI setup that
+  // deliberately never gives this process credentials.
+  if (enabled && outputFile === undefined && token === '') {
     throw new QualflareConfigError(
       'qualflare-cypress: no token configured. Set the `token` option or the QUALFLARE_TOKEN ' +
         '(or QF_TOKEN) environment variable, or pass `enabled: false` to disable this plugin.',
@@ -205,7 +238,19 @@ export function resolveConfig(
     maxAttachmentBytes: options.maxAttachmentBytes ?? envInt('QUALFLARE_MAX_ATTACHMENT_BYTES') ?? 1_500_000,
     maxTotalAttachmentBytes:
       options.maxTotalAttachmentBytes ?? envInt('QUALFLARE_MAX_TOTAL_ATTACHMENT_BYTES') ?? 750_000,
+    // Forced off in outputFile mode, regardless of what was configured: video
+    // upload needs a real token (this mode deliberately has none — see the
+    // token check above) and, even if it somehow succeeded, the resulting
+    // storageKey has no equivalent in qualflare-cli's merge parser and would
+    // be dropped at merge time anyway (see qualflare-cli's
+    // internal/adapters/parsers/native/qualflare/qualflare.go). Centralized
+    // here rather than checked at each of the several video-upload call
+    // sites (events.ts, attachment-reader.ts) — a call site that forgot this
+    // check was a real bug found in self-review.
+    uploadVideos: outputFile !== undefined ? false : (options.uploadVideos ?? envBool('QUALFLARE_UPLOAD_VIDEOS') ?? true),
+    maxVideoBytes: options.maxVideoBytes ?? envInt('QUALFLARE_MAX_VIDEO_BYTES') ?? MAX_VIDEO_UPLOAD_BYTES,
     debug: options.debug ?? envBool('QUALFLARE_DEBUG', 'QF_DEBUG') ?? false,
     enabled,
+    outputFile,
   };
 }

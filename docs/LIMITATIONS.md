@@ -4,22 +4,27 @@ These are real, current constraints of `@qualflare/cypress` v1 — documented de
 discovered by surprise. Several stem from Qualflare backend capabilities that don't exist yet;
 others are inherent to how Cypress exposes information to a reporter.
 
-## No video upload
+## Video upload
 
-Qualflare has no blob/video-attachment storage yet (a separate, larger backend feature — see the
-project's Feature V in the platform's implementation plan). Cypress's per-spec video path (from
-`after:spec`'s `results.video`) is logged for your own reference only:
+Video attachments (`.mp4`, `.webm`, `.mov`) upload to R2 via a presigned-URL flow, separate from the
+inline-base64 path small attachments (screenshots) use — a typical video is far too large to inline
+in the `/collect` request body. Two sources:
 
-```
-Recorded video: cypress/videos/login.cy.ts.mp4 (not uploaded — Qualflare has no video attachment support yet)
-```
+- Cypress's own per-spec recording (`after:spec`'s `results.video`), uploaded and attached to the
+  first FAILING case in that spec — only when at least one case failed (an all-passing spec's video
+  has little diagnostic value and isn't uploaded). Since Cypress records one video per spec, not per
+  test, there is no exact owning case; attaching to the first failure avoids double-counting the same
+  R2 object's bytes against workspace storage quota, which attaching to every failing case would.
+- `qualflare.attachmentFromFile()` called with a video path, uploaded and attached to whichever test
+  called it, like any other file attachment.
 
-It is never read into memory, never base64-encoded, and never referenced by any uploaded attachment.
-This is enforced both structurally (no code path routes a video file through the attachment
-pipeline) and defensively (`resolveAttachments()` explicitly refuses any video mimeType or file
-extension even if something upstream tried).
+Controlled by two options: `uploadVideos` (default `true`) and `maxVideoBytes` (default 50MB,
+matching the server's own cap — checked via `fs.statSync` before any upload attempt). A video that
+fails to upload (oversized, unsupported format, or a network/API error) is skipped with a logged
+warning, the same fail-open behavior as any other attachment — it never fails the run, independent of
+`failOnUploadError` (which is scoped to the final `/collect` POST, not to attachment resolution).
 
-## One `cypress run` process = one Launch
+## One `cypress run` process = one Launch (unless you merge sharded runs)
 
 Qualflare's `/api/v1/collect` endpoint creates exactly one new Launch per request, with no
 incremental or merge capability server-side. This reporter accumulates every spec file's results in
@@ -27,11 +32,71 @@ memory for the lifetime of one `cypress run` process and uploads them in a singl
 `after:run`.
 
 If your CI shards specs across **multiple separate `cypress run` processes or machines**, each shard
-uploads its own separate Launch — you will see N Launches for one CI run, not one combined Launch.
+uploads its own separate Launch by default — you will see N Launches for one CI run, not one
+combined Launch.
 
-A natural v2 extension (not built here) is an optional file-output mode that writes the exact
-`Collect` JSON shape to disk instead of POSTing, so a separate aggregation step could combine
-multiple shards' output before uploading once.
+### Merging shards into one Launch
+
+Set `outputFile` (or `QUALFLARE_OUTPUT_FILE`) instead of relying on the default POST-per-process
+behavior: the reporter writes its `Collect` JSON to that path and uploads nothing itself (no token
+is even required in this mode). Give each shard a unique path, upload it as a CI artifact, then
+merge and upload once via [`qualflare-cli`](https://github.com/Qualflare/qualflare-cli)'s `--shard`
+flag, which already implements exactly this file-merge pattern for every framework it supports.
+
+Video attachments are never uploaded in this mode — `uploadVideos` is forced off automatically,
+regardless of what's configured. Video upload needs a real token (this mode deliberately has none),
+and even a successful upload's `storageKey` has no equivalent in `qualflare-cli`'s merge parser and
+would be dropped at merge time anyway. A spec's failing-test video (or a `qualflare.attachmentFromFile()`
+call given a video path) is simply skipped, with a logged warning, the same as `uploadVideos: false`.
+
+```ts
+// cypress.config.ts
+export default defineConfig({
+  e2e: {
+    setupNodeEvents(on, config) {
+      return qualflareCypress(on, config, {
+        outputFile: `qualflare-report-${process.env.SHARD_INDEX}.json`,
+      });
+    },
+  },
+});
+```
+
+GitHub Actions example (a matrix job per shard, then a final job that merges and uploads):
+
+```yaml
+jobs:
+  test:
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - run: npx cypress run
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          # No QUALFLARE_TOKEN here — outputFile mode never authenticates.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qualflare-report-${{ matrix.shard }}
+          path: qualflare-report-${{ matrix.shard }}.json
+
+  upload:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qualflare-report-*
+          merge-multiple: true
+      - run: |
+          npm install -g @qualflare/cli
+          qf login ci "$QF_TOKEN" --force
+          qf ci collect --shard qualflare-report-*.json
+        env:
+          QF_TOKEN: ${{ secrets.QF_TOKEN }}
+```
+
+`qf` auto-detects this reporter's JSON output from its content — no `--format` flag needed.
 
 ## Command-log step nesting is two levels only
 

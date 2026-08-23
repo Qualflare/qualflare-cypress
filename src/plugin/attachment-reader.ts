@@ -1,22 +1,29 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { SendOptions } from '../http/client.js';
 import { logger } from '../shared/logger.js';
 import type { Attachment } from '../shared/types.js';
+import { uploadVideo } from './video-uploader.js';
 
-/** Extensions/mime-prefixes this reporter must never attach — qualflare-cypress
- * has no video/blob-attachment support yet (a separate, unbuilt backend
- * feature). Nothing in this codebase should ever produce one of these (only
- * `events.ts`'s `after:screenshot` handler enqueues a pending attachment,
- * and it always hardcodes `image/png`), but this is enforced here too,
- * defensively, as a belt-and-suspenders guard rather than relying purely on
- * that convention. */
+/** Extensions/mime-prefixes routed through the video-upload flow instead of
+ * the inline-base64 path below. Broader than the server's own MIME
+ * allowlist (`.avi`/`.mkv` included) so this still correctly IDENTIFIES a
+ * video attachment even in a format the server can't accept — `uploadVideo`
+ * is what actually enforces the narrower allowlist and warns/skips a format
+ * outside it. Nothing in this codebase currently produces `.avi`/`.mkv`
+ * (`events.ts`'s `after:screenshot` handler always hardcodes `image/png`,
+ * and Cypress itself only ever records `.mp4`), but a `qualflare.attachmentFromFile()`
+ * call can point at any local file. */
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv']);
 
 export interface AttachmentReaderConfig {
   attachScreenshots: boolean;
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
+  uploadVideos: boolean;
+  maxVideoBytes: number;
+  httpOptions: SendOptions;
 }
 
 /**
@@ -91,25 +98,29 @@ function readAttachmentFile(filePath: string, maxAttachmentBytes: number, budget
 }
 
 /**
- * Resolves a Case's attachment references into inline base64 `content`, or
- * drops them. Attachment references arrive with only a `path` (never
- * bytes — screenshots are captured entirely Node-side via the
- * `after:screenshot` plugin event in `events.ts`, so there is no browser
- * context involved in producing them at all), so all file I/O and
- * size-guarding happens here, at the point a finished Case is received from
- * `cy.task(TASK_REPORT_CASE, ...)` — see `tasks.ts`.
+ * Resolves a Case's attachment references into either inline base64
+ * `content` (small files) or an uploaded `storageKey` (video — see
+ * `video-uploader.ts`), or drops them. Attachment references arrive with
+ * only a `path` (never bytes — screenshots are captured entirely Node-side
+ * via the `after:screenshot` plugin event in `events.ts`, and an author's
+ * `qualflare.attachmentFromFile()` call carries only the path it was given
+ * too), so all file I/O and size-guarding happens here, at the point a
+ * finished Case is received from `cy.task(TASK_REPORT_CASE, ...)` — see
+ * `tasks.ts`.
  *
- * Per the plan's resolved decision, an oversized or over-budget attachment
- * is skipped ENTIRELY (not degraded to a contentless path-only entry): the
- * server's `path` field is explicitly informational/never-fetched, so a
- * contentless entry has little value and this keeps the behavior simple
- * and predictable.
+ * Per the plan's resolved decision, an oversized or over-budget INLINE
+ * attachment is skipped ENTIRELY (not degraded to a contentless path-only
+ * entry): the server's `path` field is explicitly informational/never-fetched,
+ * so a contentless entry has little value and this keeps the behavior
+ * simple and predictable. A video attachment that fails to upload (oversized
+ * per `maxVideoBytes`, unsupported format, or a network/API error) is
+ * skipped the same way — `uploadVideo` already logs why.
  */
-export function resolveAttachments(
+export async function resolveAttachments(
   attachments: Attachment[] | undefined,
   config: AttachmentReaderConfig,
   budget: AttachmentBudget,
-): Attachment[] | undefined {
+): Promise<Attachment[] | undefined> {
   if (!attachments || attachments.length === 0) {
     return undefined;
   }
@@ -120,10 +131,25 @@ export function resolveAttachments(
   const resolved: Attachment[] = [];
   for (const attachment of attachments) {
     if (isVideoLike(attachment)) {
-      logger.warn(
-        `refusing to attach "${attachment.name}": video attachments are not supported yet ` +
-          `(${attachment.path ?? attachment.mimeType ?? 'unknown'}).`,
-      );
+      if (!config.uploadVideos) {
+        logger.info(`skipping video attachment "${attachment.name}": uploadVideos is disabled.`);
+        continue;
+      }
+      if (!attachment.path) {
+        logger.warn(`skipping video attachment "${attachment.name}": no local file path to upload.`);
+        continue;
+      }
+      const uploaded = await uploadVideo(attachment.path, config.maxVideoBytes, config.httpOptions);
+      if (!uploaded) {
+        // uploadVideo already logged the specific reason.
+        continue;
+      }
+      resolved.push({
+        ...attachment,
+        mimeType: uploaded.mimeType,
+        storageKey: uploaded.storageKey,
+        fileSize: uploaded.fileSize,
+      });
       continue;
     }
     if (attachment.content !== undefined || !attachment.path) {
