@@ -1,5 +1,9 @@
 # @qualflare/cypress
 
+[![npm version](https://img.shields.io/npm/v/%40qualflare%2Fcypress.svg)](https://www.npmjs.com/package/@qualflare/cypress)
+[![CI](https://github.com/Qualflare/qualflare-cypress/actions/workflows/ci.yml/badge.svg)](https://github.com/Qualflare/qualflare-cypress/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
+
 A native Cypress reporter for [Qualflare](https://qualflare.com) — uploads test results directly
 from your Cypress run: suite/test status, real retry counts, screenshots, step-by-step command
 traces, and author-facing metadata (labels, links, tags, custom attachments). No post-hoc file
