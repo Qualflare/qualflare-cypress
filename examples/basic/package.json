@@ -1,0 +1,13 @@
+{
+  "name": "qualflare-cypress-basic-example",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal example of using @qualflare/cypress in a real Cypress project.",
+  "devDependencies": {
+    "@qualflare/cypress": "^0.1.0",
+    "cypress": "^14.0.0"
+  },
+  "scripts": {
+    "test": "cypress run"
+  }
+}

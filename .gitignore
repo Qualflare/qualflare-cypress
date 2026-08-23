@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Cypress artifacts (from this repo's own integration-test fixture project)
+test/integration/fixtures/**/cypress/videos/
+test/integration/fixtures/**/cypress/screenshots/
+test/integration/fixtures/**/cypress/downloads/
+
+# example project artifacts
+examples/**/cypress/videos/
+examples/**/cypress/screenshots/
+examples/**/cypress/downloads/
+examples/**/node_modules/
