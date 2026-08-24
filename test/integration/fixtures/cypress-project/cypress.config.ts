@@ -33,7 +33,6 @@ export default defineConfig({
         // subprocess we don't need in a test harness.
         branch: null,
         commit: null,
-        debug: true,
       });
     },
   },

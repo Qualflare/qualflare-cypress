@@ -7,7 +7,6 @@ import { detectGit, type GitInfo } from './git-detect.js';
  * `cypress.config.ts`. Every field here also has an environment-variable
  * override — see the precedence table in the README / plan. */
 export interface QualflareCypressOptions {
-  apiEndpoint?: string;
   environment?: string;
   language?: string;
   milestone?: number | null;
@@ -24,12 +23,6 @@ export interface QualflareCypressOptions {
   ciBuildNumber?: string;
   ciRunUrl?: string;
   ciPrNumber?: number;
-  timeoutMs?: number;
-  retry?: {
-    max?: number;
-    baseDelayMs?: number;
-    maxDelayMs?: number;
-  };
   attachScreenshots?: boolean;
   maxAttachmentBytes?: number;
   maxTotalAttachmentBytes?: number;
@@ -38,7 +31,6 @@ export interface QualflareCypressOptions {
    * cap — raising this past 50MB only wastes an upload attempt the server
    * will reject. */
   maxVideoBytes?: number;
-  debug?: boolean;
   /** `false` fully disables accumulation/POST (a complete no-op) but still
    * registers no-op `on('task', ...)` handlers so `cy.task()` calls from the
    * browser side never error with "no handler registered for task." */
@@ -51,15 +43,15 @@ export interface QualflareCypressOptions {
    * without colliding — see docs/LIMITATIONS.md. */
   outputDir?: string;
   /** This process's 0-based position among parallel shards of the same CI
-   * run, stamped onto every case it reports. Auto-detected from CI env vars
-   * when omitted (see docs/CONFIGURATION.md's detection table) — a normal
-   * single-process run needs no shard concept at all and can leave this
-   * unset. */
+   * run, stamped onto every case it reports. Resolved only from this option
+   * or the `QUALFLARE_SHARD_INDEX` env var — no shard concept is
+   * auto-detected beyond that (set it yourself from your CI's own matrix
+   * index; see docs/CONFIGURATION.md). A normal single-process run needs no
+   * shard concept at all and can leave this unset. */
   shardIndex?: number;
 }
 
 export interface ResolvedPluginConfig {
-  apiEndpoint: string;
   environment: string;
   language: string;
   milestone: number | null;
@@ -74,13 +66,10 @@ export interface ResolvedPluginConfig {
   ciBuildNumber?: string;
   ciRunUrl?: string;
   ciPrNumber?: number;
-  timeoutMs: number;
-  retry: { max: number; baseDelayMs: number; maxDelayMs: number };
   attachScreenshots: boolean;
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
   maxVideoBytes: number;
-  debug: boolean;
   enabled: boolean;
   outputDir: string;
   shardIndex?: number;
@@ -181,7 +170,6 @@ export function resolveConfig(
   const ciPrNumber = options.ciPrNumber ?? detectedCi.ciPrNumber;
 
   return {
-    apiEndpoint: options.apiEndpoint ?? firstEnv('QUALFLARE_API_ENDPOINT') ?? 'https://api.qualflare.com',
     // `||` (truthy check), not `??`, for these three REQUIRED-non-empty wire
     // fields — matching `collect-builder.ts`'s `resolveOs`/`resolveBrowser`,
     // which already correctly treat an explicit `''` option as "not set."
@@ -204,18 +192,11 @@ export function resolveConfig(
     ciBuildNumber,
     ciRunUrl,
     ciPrNumber,
-    timeoutMs: options.timeoutMs ?? envInt('QUALFLARE_TIMEOUT_MS') ?? 120_000,
-    retry: {
-      max: options.retry?.max ?? envInt('QUALFLARE_RETRY_MAX', 'QF_RETRY_MAX') ?? 3,
-      baseDelayMs: options.retry?.baseDelayMs ?? envInt('QUALFLARE_RETRY_BASE_DELAY_MS') ?? 1000,
-      maxDelayMs: options.retry?.maxDelayMs ?? envInt('QUALFLARE_RETRY_MAX_DELAY_MS') ?? 30_000,
-    },
     attachScreenshots: options.attachScreenshots ?? envBool('QUALFLARE_ATTACH_SCREENSHOTS') ?? true,
     maxAttachmentBytes: options.maxAttachmentBytes ?? envInt('QUALFLARE_MAX_ATTACHMENT_BYTES') ?? 1_500_000,
     maxTotalAttachmentBytes:
       options.maxTotalAttachmentBytes ?? envInt('QUALFLARE_MAX_TOTAL_ATTACHMENT_BYTES') ?? 750_000,
     maxVideoBytes: options.maxVideoBytes ?? envInt('QUALFLARE_MAX_VIDEO_BYTES') ?? MAX_VIDEO_UPLOAD_BYTES,
-    debug: options.debug ?? envBool('QUALFLARE_DEBUG', 'QF_DEBUG') ?? false,
     enabled,
     outputDir,
     shardIndex,

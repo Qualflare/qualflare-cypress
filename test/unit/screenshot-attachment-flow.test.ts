@@ -60,7 +60,6 @@ function freshOutputDir(): string {
 }
 
 const BASE_CONFIG: ResolvedPluginConfig = {
-  apiEndpoint: 'http://localhost:0',
   environment: 'development',
   language: 'en-US',
   milestone: null,
@@ -68,13 +67,10 @@ const BASE_CONFIG: ResolvedPluginConfig = {
   commit: null,
   platform: 'web',
   framework: 'cypress',
-  timeoutMs: 1000,
-  retry: { max: 0, baseDelayMs: 1, maxDelayMs: 1 },
   attachScreenshots: true,
   maxAttachmentBytes: 1_000_000,
   maxTotalAttachmentBytes: 1_000_000,
   maxVideoBytes: 50_000_000,
-  debug: false,
   enabled: true,
   outputDir: './qualflare-results',
 };
