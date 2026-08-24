@@ -10,20 +10,25 @@ import { defineConfig } from 'cypress';
 import { qualflareCypress } from '../../../../dist/plugin/index.js';
 
 export default defineConfig({
-  video: false,
+  // Enabled (rather than the production-typical `false`) so the integration
+  // test can exercise the video-attachment path end-to-end: a spec with at
+  // least one failing test gets its recorded video copied into `outputDir`
+  // and referenced via `localVideoPath` — see src/plugin/events.ts's
+  // `after:spec` handler.
+  video: true,
   screenshotOnRunFailure: true,
   e2e: {
     supportFile: 'cypress/support/e2e.ts',
     specPattern: 'cypress/e2e/**/*.cy.ts',
     setupNodeEvents(on, config) {
       return qualflareCypress(on, config, {
-        token: process.env.QUALFLARE_TEST_TOKEN ?? 'test-token',
-        apiEndpoint: process.env.QUALFLARE_TEST_API_ENDPOINT,
+        // A custom QUALFLARE_TEST_* var (not the real QUALFLARE_OUTPUT_DIR)
+        // so the integration test can point each run at its own isolated
+        // temp directory without depending on/colliding with anything a
+        // developer's shell might already export.
+        outputDir: process.env.QUALFLARE_TEST_OUTPUT_DIR ?? './qualflare-results',
         environment: 'development',
-        // The harness itself should fail loudly if upload breaks — the opposite
-        // of the safe production default (false).
-        failOnUploadError: true,
-        // Skip git/CI auto-detection noise in the captured payload — this
+        // Skip git/CI auto-detection noise in the captured report — this
         // fixture's assertions don't depend on it, and it forks a `git`
         // subprocess we don't need in a test harness.
         branch: null,

@@ -4,65 +4,58 @@ These are real, current constraints of `@qualflare/cypress` v1 — documented de
 discovered by surprise. Several stem from Qualflare backend capabilities that don't exist yet;
 others are inherent to how Cypress exposes information to a reporter.
 
-## Video upload
+## Video attachments
 
-Video attachments (`.mp4`, `.webm`, `.mov`) upload to R2 via a presigned-URL flow, separate from the
-inline-base64 path small attachments (screenshots) use — a typical video is far too large to inline
-in the `/collect` request body. Two sources:
+Video attachments (`.mp4`, `.webm`, `.mov`) are never uploaded by this reporter — it only copies the
+file locally into `outputDir`, alongside the report JSON, and references it via the JSON's
+`localVideoPath` field. [`qualflare-cli`](https://github.com/Qualflare/qualflare-cli) is what
+resolves `localVideoPath` into a real upload (its own presigned-URL flow to R2) once it runs
+`collect` against that directory. Two sources:
 
-- Cypress's own per-spec recording (`after:spec`'s `results.video`), uploaded and attached to the
+- Cypress's own per-spec recording (`after:spec`'s `results.video`), copied and attached to the
   first FAILING case in that spec — only when at least one case failed (an all-passing spec's video
-  has little diagnostic value and isn't uploaded). Since Cypress records one video per spec, not per
+  has little diagnostic value and isn't copied). Since Cypress records one video per spec, not per
   test, there is no exact owning case; attaching to the first failure avoids double-counting the same
-  R2 object's bytes against workspace storage quota, which attaching to every failing case would.
-- `qualflare.attachmentFromFile()` called with a video path, uploaded and attached to whichever test
+  object's bytes against workspace storage quota, which attaching to every failing case would.
+- `qualflare.attachmentFromFile()` called with a video path, copied and attached to whichever test
   called it, like any other file attachment.
 
-Controlled by two options: `uploadVideos` (default `true`) and `maxVideoBytes` (default 50MB,
-matching the server's own cap — checked via `fs.statSync` before any upload attempt). A video that
-fails to upload (oversized, unsupported format, or a network/API error) is skipped with a logged
-warning, the same fail-open behavior as any other attachment — it never fails the run, independent of
-`failOnUploadError` (which is scoped to the final `/collect` POST, not to attachment resolution).
+Controlled by `maxVideoBytes` (default 50MB, matching the server's own cap) — checked via
+`fs.statSync` before any file is copied, so an oversized video is never copied just to be rejected
+later by `qualflare-cli`'s own upload attempt. A video that fails to copy (oversized, unsupported
+format, or an unreadable source file) is skipped with a logged warning, the same fail-open behavior
+as any other attachment — it never fails the `cypress run` itself.
 
-## One `cypress run` process = one Launch (unless you merge sharded runs)
+## One `cypress run` process = one report file (until `qualflare-cli collect` runs)
 
-Qualflare's `/api/v1/collect` endpoint creates exactly one new Launch per request, with no
-incremental or merge capability server-side. This reporter accumulates every spec file's results in
-memory for the lifetime of one `cypress run` process and uploads them in a single POST at
-`after:run`.
-
-If your CI shards specs across **multiple separate `cypress run` processes or machines**, each shard
-uploads its own separate Launch by default — you will see N Launches for one CI run, not one
-combined Launch.
+Qualflare's `/api/v1/collect` endpoint still creates exactly one new Launch per request, with no
+incremental or merge capability server-side — but this reporter no longer calls it. Every
+`cypress run` process accumulates its own spec results in memory and, at `after:run`, writes them to
+exactly one uniquely-named Collect JSON file in `outputDir` — nothing is merged and nothing is
+uploaded by the reporter itself. Merging (when there's anything to merge) is entirely
+`qualflare-cli`'s job, performed once, at collect time.
 
 ### Merging shards into one Launch
 
-Set `outputFile` (or `QUALFLARE_OUTPUT_FILE`) instead of relying on the default POST-per-process
-behavior: the reporter writes its `Collect` JSON to that path and uploads nothing itself (no token
-is even required in this mode). Give each shard a unique path, upload it as a CI artifact, then
-merge and upload once via [`qualflare-cli`](https://github.com/Qualflare/qualflare-cli)'s `--shard`
-flag, which already implements exactly this file-merge pattern for every framework it supports.
+Point every shard's `cypress run` at the same shared `outputDir` (a CI cache path, or a directory an
+artifact-download step assembles) — no path templating or unique-filename bookkeeping needed on your
+end, since each process already writes its own uniquely-named file. Every case the reporter emits
+carries a `shardIndex` (auto-detected from the `QUALFLARE_SHARD_INDEX` env var when set — see
+[`docs/CONFIGURATION.md`](./CONFIGURATION.md)), passed straight through by `qualflare-cli`, never
+renumbered.
 
-Video attachments are never uploaded in this mode — `uploadVideos` is forced off automatically,
-regardless of what's configured. Video upload needs a real token (this mode deliberately has none),
-and even a successful upload's `storageKey` has no equivalent in `qualflare-cli`'s merge parser and
-would be dropped at merge time anyway. A spec's failing-test video (or a `qualflare.attachmentFromFile()`
-call given a video path) is simply skipped, with a logged warning, the same as `uploadVideos: false`.
+Once every shard has run, collect the directory once:
 
-```ts
-// cypress.config.ts
-export default defineConfig({
-  e2e: {
-    setupNodeEvents(on, config) {
-      return qualflareCypress(on, config, {
-        outputFile: `qualflare-report-${process.env.SHARD_INDEX}.json`,
-      });
-    },
-  },
-});
+```sh
+qf my-project collect ./qualflare-results
 ```
 
-GitHub Actions example (a matrix job per shard, then a final job that merges and uploads):
+Finding more than one report file in `outputDir` **is** the merge signal for this reporter's own
+output — no `--shard` flag needed (`--shard` still exists for frameworks whose native report format
+has no embedded shard index, e.g. JUnit XML).
+
+GitHub Actions example (a matrix job per shard sharing one artifact, then a final job that collects
+it):
 
 ```yaml
 jobs:
@@ -73,12 +66,11 @@ jobs:
     steps:
       - run: npx cypress run
         env:
-          SHARD_INDEX: ${{ matrix.shard }}
-          # No QUALFLARE_TOKEN here — outputFile mode never authenticates.
+          QUALFLARE_SHARD_INDEX: ${{ matrix.shard }}
       - uses: actions/upload-artifact@v4
         with:
-          name: qualflare-report-${{ matrix.shard }}
-          path: qualflare-report-${{ matrix.shard }}.json
+          name: qualflare-results-${{ matrix.shard }}
+          path: qualflare-results/
 
   upload:
     needs: test
@@ -86,17 +78,28 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: qualflare-report-*
+          pattern: qualflare-results-*
+          path: qualflare-results
           merge-multiple: true
       - run: |
           npm install -g @qualflare/cli
-          qf login ci "$QF_TOKEN" --force
-          qf ci collect --shard qualflare-report-*.json
+          qf login my-project "$QF_TOKEN" --force
+          qf my-project collect ./qualflare-results
         env:
           QF_TOKEN: ${{ secrets.QF_TOKEN }}
 ```
 
 `qf` auto-detects this reporter's JSON output from its content — no `--format` flag needed.
+
+### Stale-file caveat
+
+Co-location in `outputDir` is the *only* merge signal `qualflare-cli collect` uses — there is no run
+identity check. If `outputDir` isn't cleared between runs (a local `cypress run` executed twice
+against the default `./qualflare-results`, or a CI cache/artifact path that persists the directory
+across builds), leftover JSON from a previous run gets silently merged into the current one. This
+matches the convention [Allure](https://allurereport.org/) documents for its own `allure-results`
+directory: clear or freshly create `outputDir` at the start of every run — there is no dedup
+mechanism in `qualflare-cli` that would catch this for you.
 
 ## Command-log step nesting is two levels only
 

@@ -8,6 +8,9 @@ coverage/
 test/integration/fixtures/**/cypress/videos/
 test/integration/fixtures/**/cypress/screenshots/
 test/integration/fixtures/**/cypress/downloads/
+# outputDir's default location, in case the fixture is ever run manually
+# outside the integration test (which always overrides it to a temp dir)
+test/integration/fixtures/**/qualflare-results/
 
 # example project artifacts
 examples/**/cypress/videos/

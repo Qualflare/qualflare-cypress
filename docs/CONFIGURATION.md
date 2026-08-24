@@ -14,7 +14,6 @@ from that file (not from memory) if the two ever drift.
 
 | Option | Env var(s) | Default | Notes |
 |---|---|---|---|
-| `token` | `QUALFLARE_TOKEN` → `QF_TOKEN` | *(required)* | Throws a `QualflareConfigError` at `qualflareCypress()` call time if unresolved and `enabled` isn't `false` — fails before any spec runs. |
 | `apiEndpoint` | `QUALFLARE_API_ENDPOINT` | `https://api.qualflare.com` | |
 | `environment` | `QUALFLARE_ENVIRONMENT` → `QF_ENVIRONMENT` | `development` | Must already exist in your Qualflare project (server returns 404 otherwise) — every project seeds `development`/`staging`/`production`/`qa` by default. |
 | `language` | `QUALFLARE_LANGUAGE` → `QF_LANGUAGE` | `en-US` | BCP47. |
@@ -34,15 +33,14 @@ from that file (not from memory) if the two ever drift.
 | `retry.max` | `QUALFLARE_RETRY_MAX` → `QF_RETRY_MAX` | `3` | |
 | `retry.baseDelayMs` | `QUALFLARE_RETRY_BASE_DELAY_MS` | `1000` | |
 | `retry.maxDelayMs` | `QUALFLARE_RETRY_MAX_DELAY_MS` | `30000` | |
-| `failOnUploadError` | `QUALFLARE_FAIL_ON_UPLOAD_ERROR` | `false` | When `false` (default), a Qualflare upload failure is logged but never fails an otherwise-green `cypress run`. Set `true` for stricter CI gating. |
-| `attachScreenshots` | `QUALFLARE_ATTACH_SCREENSHOTS` | `true` | The `after:screenshot` hook is always registered regardless (Cypress expects it); this just controls whether captured screenshots are actually queued for upload. |
+| `attachScreenshots` | `QUALFLARE_ATTACH_SCREENSHOTS` | `true` | The `after:screenshot` hook is always registered regardless (Cypress expects it); this just controls whether captured screenshots are actually included in the report. |
 | `maxAttachmentBytes` | `QUALFLARE_MAX_ATTACHMENT_BYTES` | `1500000` | Per-file cap (bytes, decoded size) — an oversized screenshot/attachment is skipped and logged, never silently truncated. |
 | `maxTotalAttachmentBytes` | `QUALFLARE_MAX_TOTAL_ATTACHMENT_BYTES` | `750000` | Cumulative cap across the whole run — kept conservative because production currently has an effective ~1MB request-body-limit bug (see [`docs/LIMITATIONS.md`](./LIMITATIONS.md)); raise once that's confirmed fixed server-side. |
-| `uploadVideos` | `QUALFLARE_UPLOAD_VIDEOS` | `true` | Upload video attachments (Cypress's own per-spec recording, and `qualflare.attachmentFromFile()` given a video path) via a separate presigned-URL flow — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
-| `maxVideoBytes` | `QUALFLARE_MAX_VIDEO_BYTES` | `50000000` | Per-video cap (bytes), checked before any upload attempt. Matches the server's own 50MB cap — raising this past it only wastes an upload the server will reject. |
-| `outputFile` | `QUALFLARE_OUTPUT_FILE` | unset | When set, `after:run` writes the `Collect` JSON to this path instead of POSTing it — no `token` required in this mode. Also forces `uploadVideos` off (video upload needs a token, and its result would be dropped at merge time anyway). For merging sharded CI runs into one Launch — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
-| `debug` | `QUALFLARE_DEBUG` → `QF_DEBUG` | `false` | Logs request/response details to stderr with the token redacted before any log line is constructed. |
-| `enabled` | `QUALFLARE_ENABLED` | `true` | `false` fully disables accumulation and upload (a complete no-op) but still registers no-op Cypress task handlers so `cy.task()` calls from the browser side never error. |
+| `maxVideoBytes` | `QUALFLARE_MAX_VIDEO_BYTES` | `50000000` | Per-video cap (bytes), checked via `fs.statSync` before the file is copied into `outputDir` — a cheap local pre-filter so an oversized video is never copied at all, only for `qualflare-cli`'s later upload attempt to get rejected by the server's own 50MB cap. |
+| `outputDir` | `QUALFLARE_OUTPUT_DIR` | `./qualflare-results` | Directory `after:run` writes this process's report file (and any video attachments) into. Always active — this reporter never uploads anything itself; `qualflare-cli collect <outputDir>` reads whatever ends up here. Every JSON file is uniquely named, so multiple shards can safely write into the same directory without colliding — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
+| `shardIndex` | `QUALFLARE_SHARD_INDEX` | unset | This process's 0-based position among parallel shards of the same CI run, stamped onto every case it reports. No shard concept is auto-detected beyond this env var — set it yourself from your CI's own matrix index (e.g. `QUALFLARE_SHARD_INDEX: ${{ matrix.shard }}` in a GitHub Actions matrix). A normal single-process run needs no shard concept at all and can leave this unset — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
+| `debug` | `QUALFLARE_DEBUG` → `QF_DEBUG` | `false` | Enables verbose diagnostic logging to stderr. |
+| `enabled` | `QUALFLARE_ENABLED` | `true` | `false` fully disables accumulation and report writing (a complete no-op) but still registers no-op Cypress task handlers so `cy.task()` calls from the browser side never error. |
 
 ## Branch/commit auto-detection
 
