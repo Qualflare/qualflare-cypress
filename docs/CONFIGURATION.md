@@ -14,7 +14,6 @@ from that file (not from memory) if the two ever drift.
 
 | Option | Env var(s) | Default | Notes |
 |---|---|---|---|
-| `apiEndpoint` | `QUALFLARE_API_ENDPOINT` | `https://api.qualflare.com` | |
 | `environment` | `QUALFLARE_ENVIRONMENT` → `QF_ENVIRONMENT` | `development` | Must already exist in your Qualflare project (server returns 404 otherwise) — every project seeds `development`/`staging`/`production`/`qa` by default. |
 | `language` | `QUALFLARE_LANGUAGE` → `QF_LANGUAGE` | `en-US` | BCP47. |
 | `milestone` | `QUALFLARE_MILESTONE` → `QF_MILESTONE` | `null` | A milestone sequence number; values `< 1` are treated as unset. |
@@ -29,10 +28,6 @@ from that file (not from memory) if the two ever drift.
 | `ciBuildNumber` | — | auto-detected | |
 | `ciRunUrl` | — | auto-detected | |
 | `ciPrNumber` | — | auto-detected | Must be a positive integer; an unparsable/invalid value is omitted, never sent as garbage. |
-| `timeoutMs` | `QUALFLARE_TIMEOUT_MS` | `120000` | Per-attempt request timeout, in milliseconds (not a duration string). |
-| `retry.max` | `QUALFLARE_RETRY_MAX` → `QF_RETRY_MAX` | `3` | |
-| `retry.baseDelayMs` | `QUALFLARE_RETRY_BASE_DELAY_MS` | `1000` | |
-| `retry.maxDelayMs` | `QUALFLARE_RETRY_MAX_DELAY_MS` | `30000` | |
 | `attachScreenshots` | `QUALFLARE_ATTACH_SCREENSHOTS` | `true` | The `after:screenshot` hook is always registered regardless (Cypress expects it); this just controls whether captured screenshots are actually included in the report. |
 | `maxAttachmentBytes` | `QUALFLARE_MAX_ATTACHMENT_BYTES` | `1500000` | Per-file cap (bytes, decoded size) — an oversized screenshot/attachment is skipped and logged, never silently truncated. |
 | `maxTotalAttachmentBytes` | `QUALFLARE_MAX_TOTAL_ATTACHMENT_BYTES` | `750000` | Cumulative cap across the whole run — kept conservative because production currently has an effective ~1MB request-body-limit bug (see [`docs/LIMITATIONS.md`](./LIMITATIONS.md)); raise once that's confirmed fixed server-side. |

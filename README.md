@@ -60,8 +60,9 @@ qf my-project collect ./qualflare-results
 ```
 
 That's it — suite/test results, retries, and automatic-on-failure screenshots show up as one Launch
-once `qualflare-cli collect` runs. See [`examples/basic/`](./examples/basic) for a complete runnable
-project.
+once `qualflare-cli collect` runs. [`examples/basic/`](./examples/basic) has a runnable project, but
+its own instructions still describe the old direct-upload/`QUALFLARE_TOKEN` setup and haven't been
+updated for the `outputDir` model yet — follow the steps above instead, not that example's README.
 
 ## Enriching your tests
 
