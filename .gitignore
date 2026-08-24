@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.log
+*.tsbuildinfo
 .DS_Store
 
 # Cypress artifacts (from this repo's own integration-test fixture project)
