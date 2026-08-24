@@ -2,47 +2,34 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { MockAgent, setGlobalDispatcher } from 'undici';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AttachmentBudget, resolveAttachments, type AttachmentReaderConfig } from '../../src/plugin/attachment-reader.js';
 import type { Attachment } from '../../src/shared/types.js';
 
-const ENDPOINT = 'https://qualflare.test';
-
+// None of the tests using BASE_CONFIG unmodified exercise the video-copy
+// branch, so outputDir here is a placeholder, never actually written to —
+// tests that do need a real, per-test output directory build their own
+// config from `outputDir` below instead of spreading BASE_CONFIG.
 const BASE_CONFIG: AttachmentReaderConfig = {
   attachScreenshots: true,
   maxAttachmentBytes: 1_000_000,
   maxTotalAttachmentBytes: 5_000_000,
-  uploadVideos: true,
   maxVideoBytes: 50_000_000,
-  httpOptions: {
-    endpoint: ENDPOINT,
-    token: 'test-token',
-    timeoutMs: 2000,
-    retry: { max: 0, baseDelayMs: 1, maxDelayMs: 5 }, // single attempt so a mocked failure resolves fast
-    userAgent: 'qualflare-cypress-test',
-    debug: false,
-  },
+  outputDir: os.tmpdir(),
 };
 
 let tmpDir: string;
-let mockAgent: MockAgent;
+let outputDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qualflare-cypress-test-'));
-  // Video-routed attachments make a real HTTP call (requestUploadUrl) —
-  // disableNetConnect with no interceptors registered makes an unmocked
-  // attempt fail immediately (not hang/timeout), which uploadVideo then
-  // turns into a logged skip, same as any other upload failure.
-  mockAgent = new MockAgent();
-  mockAgent.disableNetConnect();
-  setGlobalDispatcher(mockAgent);
+  outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qualflare-cypress-test-out-'));
 });
 
-afterEach(async () => {
+afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  await mockAgent.close();
+  fs.rmSync(outputDir, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
 
@@ -125,56 +112,35 @@ describe('resolveAttachments', () => {
     expect(secondResult).toBeUndefined();
   });
 
-  it('skips a nonexistent file gracefully rather than throwing', async () => {
+  it('skips a nonexistent file gracefully rather than throwing', () => {
     const attachments: Attachment[] = [{ name: 'missing', path: path.join(tmpDir, 'does-not-exist.png') }];
-    await expect(resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).resolves.not.toThrow();
-    expect(await resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).toBeUndefined();
+    expect(() => resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).not.toThrow();
+    expect(resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).toBeUndefined();
   });
 
-  it('a video-mimeType attachment is routed to the upload flow, and skipped (not inlined) when the upload fails', async () => {
-    const filePath = writeTempFile('clip.webm', 100);
-    const attachments: Attachment[] = [{ name: 'clip', path: filePath, mimeType: 'video/webm' }];
-    // No interceptor registered -> requestUploadUrl's request throws -> uploadVideo logs and returns undefined.
-    expect(await resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).toBeUndefined();
+  it('routes a video-like attachment through copyVideoAttachment and sets localVideoPath', async () => {
+    const src = path.join(tmpDir, 'clip.mp4');
+    fs.writeFileSync(src, 'video-bytes');
+
+    const resolved = await resolveAttachments(
+      [{ name: 'video', path: src, mimeType: 'video/mp4' }],
+      { attachScreenshots: true, maxAttachmentBytes: 1_000_000, maxTotalAttachmentBytes: 1_000_000, maxVideoBytes: 1_000_000, outputDir },
+      new AttachmentBudget(1_000_000),
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved![0].localVideoPath).toBeDefined();
+    expect(resolved![0].content).toBeUndefined();
   });
 
-  it('a video-extension path (even with an incorrectly-labeled image mimeType) is routed to the upload flow, not inlined', async () => {
-    const filePath = writeTempFile('clip.mp4', 100);
-    const attachments: Attachment[] = [{ name: 'clip', path: filePath, mimeType: 'image/png' }];
-    expect(await resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000))).toBeUndefined();
-  });
+  it('drops a video attachment with no local path to copy', async () => {
+    const resolved = await resolveAttachments(
+      [{ name: 'video', mimeType: 'video/mp4' }],
+      { attachScreenshots: true, maxAttachmentBytes: 1_000_000, maxTotalAttachmentBytes: 1_000_000, maxVideoBytes: 1_000_000, outputDir },
+      new AttachmentBudget(1_000_000),
+    );
 
-  it('does not attempt a video upload when uploadVideos is disabled', async () => {
-    const filePath = writeTempFile('clip.mp4', 100);
-    const attachments: Attachment[] = [{ name: 'clip', path: filePath, mimeType: 'video/mp4' }];
-    const result = await resolveAttachments(attachments, { ...BASE_CONFIG, uploadVideos: false }, new AttachmentBudget(1_000_000));
-    expect(result).toBeUndefined();
-    // No interceptor was registered and disableNetConnect() would throw synchronously
-    // inside the request call if one were attempted — reaching this point at all
-    // (rather than the promise rejecting) already proves no network call was made.
-  });
-
-  it('uploads a video attachment end-to-end (presign + PUT) and attaches storageKey/fileSize instead of content', async () => {
-    const original = Buffer.from('fake video bytes');
-    const filePath = path.join(tmpDir, 'clip.mp4');
-    fs.writeFileSync(filePath, original);
-    const attachments: Attachment[] = [{ name: 'clip', path: filePath }];
-
-    const pool = mockAgent.get(ENDPOINT);
-    pool
-      .intercept({ path: '/api/v1/attachments/upload-url', method: 'POST' })
-      .reply(200, JSON.stringify({ storageKey: 'case-run-attachments/proj/123.mp4', uploadUrl: `${ENDPOINT}/put-here` }), {
-        headers: { 'content-type': 'application/json' },
-      });
-    pool.intercept({ path: '/put-here', method: 'PUT' }).reply(200, '');
-
-    const result = await resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000));
-
-    expect(result).toHaveLength(1);
-    expect(result![0]!.content).toBeUndefined();
-    expect(result![0]!.storageKey).toBe('case-run-attachments/proj/123.mp4');
-    expect(result![0]!.fileSize).toBe(original.length);
-    expect(result![0]!.mimeType).toBe('video/mp4');
+    expect(resolved).toBeUndefined();
   });
 
   it('passes through an attachment that already has inline content, untouched', async () => {

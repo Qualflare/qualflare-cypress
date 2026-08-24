@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AttachmentBudget } from '../../src/plugin/attachment-reader.js';
 import { registerEvents } from '../../src/plugin/events.js';
-import { resolveConfig, type ResolvedPluginConfig } from '../../src/plugin/resolve-config.js';
+import type { ResolvedPluginConfig } from '../../src/plugin/resolve-config.js';
 import { CaseBuffer, registerTasks } from '../../src/plugin/tasks.js';
 import { PendingAttachmentQueue, TestPhaseGate } from '../../src/plugin/state.js';
 import { TASK_MARK_TEST_PHASE_STARTED, TASK_REPORT_CASE } from '../../src/shared/constants.js';
@@ -47,11 +47,19 @@ function createFakeOn() {
   };
 }
 
-const ENDPOINT = 'https://qualflare.test';
+let tmpDir: string;
+/** outputDirs created by individual tests (distinct from the shared `tmpDir`,
+ * since `after:run` needs a dedicated, empty directory to write into and
+ * assert against) — cleaned up alongside `tmpDir` in `afterEach`. */
+let outputDirs: string[];
+
+function freshOutputDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qf-events-'));
+  outputDirs.push(dir);
+  return dir;
+}
 
 const BASE_CONFIG: ResolvedPluginConfig = {
-  token: 'test-token',
-  apiEndpoint: 'http://localhost:0',
   environment: 'development',
   language: 'en-US',
   milestone: null,
@@ -59,26 +67,23 @@ const BASE_CONFIG: ResolvedPluginConfig = {
   commit: null,
   platform: 'web',
   framework: 'cypress',
-  timeoutMs: 1000,
-  retry: { max: 0, baseDelayMs: 1, maxDelayMs: 1 },
-  failOnUploadError: false,
   attachScreenshots: true,
   maxAttachmentBytes: 1_000_000,
   maxTotalAttachmentBytes: 1_000_000,
-  uploadVideos: true,
   maxVideoBytes: 50_000_000,
-  debug: false,
   enabled: true,
+  outputDir: './qualflare-results',
 };
 
-let tmpDir: string;
 let mockAgent: MockAgent;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qualflare-cypress-flow-test-'));
-  // A video-upload attempt (when one of these tests' spec has a failing case
-  // and a video path) makes a real HTTP call — disableNetConnect with no
-  // interceptors registered makes an unmocked attempt fail immediately.
+  outputDirs = [];
+  // The reporter never makes an HTTP call of any kind (see events.ts's
+  // "never POSTs" rewrite) — disableNetConnect with no interceptors
+  // registered means any accidental network attempt fails immediately,
+  // making this suite itself the regression guard for that invariant.
   mockAgent = new MockAgent();
   mockAgent.disableNetConnect();
   setGlobalDispatcher(mockAgent);
@@ -86,6 +91,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  for (const dir of outputDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   await mockAgent.close();
   vi.restoreAllMocks();
 });
@@ -174,12 +182,14 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     expect(pendingAttachments.drain()).toHaveLength(0);
   });
 
-  it('never produces an attachment for a spec video when no case in the spec failed', async () => {
+  it('never copies a spec video into outputDir when no case in the spec failed', async () => {
     const { on, fire } = createFakeOn();
     const buffer = new CaseBuffer();
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
-    registerEvents(on, BASE_CONFIG, buffer, pendingAttachments, testPhaseGate);
+    const outputDir = freshOutputDir();
+    const config: ResolvedPluginConfig = { ...BASE_CONFIG, outputDir };
+    registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
     fire('before:spec', fakeSpec('a.cy.ts'));
     await fire(
@@ -188,39 +198,27 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
       fakeSpecResults({ video: '/some/path/a.cy.ts.mp4', stats: { tests: 0, duration: 10, startedAt: new Date().toISOString() } }),
     );
 
-    // An all-passing (here: empty) spec's video is never uploaded — no
-    // interceptor was registered, so an attempt would have rejected loudly.
+    // An all-passing (here: empty) spec's video is never copied — outputDir
+    // stays untouched (it isn't even created).
     expect(pendingAttachments.drain()).toHaveLength(0);
+    expect(fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : []).toHaveLength(0);
   });
 
-  it('uploads a failing spec\'s video and attaches it to the first failing case', async () => {
+  it("copies a failing spec's video into outputDir and attaches localVideoPath to the first failing case", async () => {
     const { on, fire, fireTask } = createFakeOn();
     const buffer = new CaseBuffer();
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
     const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
-    const config: ResolvedPluginConfig = { ...BASE_CONFIG, apiEndpoint: ENDPOINT };
+    const outputDir = freshOutputDir();
+    const config: ResolvedPluginConfig = { ...BASE_CONFIG, outputDir };
 
     registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
     registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
-    const pool = mockAgent.get(ENDPOINT);
-    pool
-      .intercept({ path: '/api/v1/attachments/upload-url', method: 'POST' })
-      .reply(200, JSON.stringify({ storageKey: 'case-run-attachments/proj/video.mp4', uploadUrl: `${ENDPOINT}/put-here` }), {
-        headers: { 'content-type': 'application/json' },
-      });
-    pool.intercept({ path: '/put-here', method: 'PUT' }).reply(200, '');
-    let collectBody: string | undefined;
-    pool
-      .intercept({ path: '/api/v1/collect', method: 'POST' })
-      .reply((opts) => {
-        collectBody = opts.body as string;
-        return { statusCode: 201, data: JSON.stringify({ seq: 1 }), responseOptions: { headers: { 'content-type': 'application/json' } } };
-      });
-
+    const videoBytes = Buffer.from('fake video bytes');
     const videoPath = path.join(tmpDir, 'a.cy.ts.mp4');
-    fs.writeFileSync(videoPath, Buffer.from('fake video bytes'));
+    fs.writeFileSync(videoPath, videoBytes);
 
     // before:spec fires first (as in real Cypress) — it defensively drains
     // the buffer, so reporting the case must happen after it, not before.
@@ -231,8 +229,8 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
 
     // after:spec drains the buffer INTO the accumulator itself (not back out
     // to the caller) — the only externally observable proof of what ended up
-    // on the Case is the eventual /collect payload, so drive the flow all
-    // the way through after:run rather than trying to re-drain the buffer.
+    // on the Case is the eventual written Collect JSON, so drive the flow
+    // all the way through after:run rather than trying to re-drain the buffer.
     await fire(
       'after:spec',
       fakeSpec('a.cy.ts'),
@@ -240,13 +238,23 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     );
     await fire('after:run');
 
-    expect(collectBody).toBeDefined();
-    const posted = JSON.parse(collectBody!) as { suites: Array<{ cases: Case[] }> };
-    const postedCase = posted.suites[0]!.cases[0]!;
-    expect(postedCase.attachments).toHaveLength(1);
-    expect(postedCase.attachments![0]!.storageKey).toBe('case-run-attachments/proj/video.mp4');
-    expect(postedCase.attachments![0]!.mimeType).toBe('video/mp4');
-    expect(postedCase.attachments![0]!.content).toBeUndefined();
+    const writtenJson = fs.readdirSync(outputDir).filter((f) => f.endsWith('.json'));
+    expect(writtenJson).toHaveLength(1);
+    const collect = JSON.parse(fs.readFileSync(path.join(outputDir, writtenJson[0]!), 'utf8')) as {
+      suites: Array<{ cases: Case[] }>;
+    };
+    const writtenCase = collect.suites[0]!.cases[0]!;
+    expect(writtenCase.attachments).toHaveLength(1);
+    const attachment = writtenCase.attachments![0]!;
+    expect(attachment.mimeType).toBe('video/mp4');
+    expect(attachment.storageKey).toBeUndefined();
+    expect(attachment.content).toBeUndefined();
+    expect(attachment.localVideoPath).toBeDefined();
+
+    // The video file itself must actually have been copied into outputDir,
+    // alongside the Collect JSON, under the localVideoPath it reports.
+    const copiedVideoPath = path.join(outputDir, attachment.localVideoPath!);
+    expect(fs.readFileSync(copiedVideoPath)).toEqual(videoBytes);
   });
 
   it('drops (does not attach to the first test) a screenshot taken before any test has started, e.g. in a root before() hook', async () => {
@@ -294,110 +302,97 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     expect(drained[0]!.attachments![0]!.content).toBe(ownShotBytes.toString('base64'));
   });
 
-  it('outputFile mode writes the Collect JSON to disk and never makes an HTTP call — sharded-CI file-output path', async () => {
+  it('always writes the Collect payload to outputDir, never POSTs', async () => {
     const { on, fire, fireTask } = createFakeOn();
     const buffer = new CaseBuffer();
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
     const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
-    const outputFile = path.join(tmpDir, 'shard-0.json');
-    // No token — outputFile mode never authenticates, so this must not throw
-    // even though normal-mode resolveConfig would refuse an empty token.
-    const config: ResolvedPluginConfig = { ...BASE_CONFIG, token: '', outputFile };
+    const outputDir = freshOutputDir();
+    const config: ResolvedPluginConfig = { ...BASE_CONFIG, outputDir };
 
     registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
     registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
-    // No MockAgent interceptor is registered on the shared dispatcher for
-    // this test file — an accidental real/attempted HTTP call would reject
-    // loudly (disableNetConnect) rather than silently succeed, which is the
-    // actual proof this mode makes zero network calls.
     fire('before:spec', fakeSpec('a.cy.ts'));
     testPhaseGate.markStarted();
-    const testCase: Case = { id: 'suite > test', name: 'test', status: 'passed', duration: 1_000_000 };
+    const testCase: Case = { id: 'suite > a passing test', name: 'a passing test', status: 'passed', duration: 1_000_000 };
     await fireTask(TASK_REPORT_CASE, testCase);
     await fire(
       'after:spec',
       fakeSpec('a.cy.ts'),
       fakeSpecResults({ stats: { tests: 1, duration: 10, startedAt: new Date().toISOString() } }),
     );
+
     await fire('after:run');
 
-    expect(fs.existsSync(outputFile)).toBe(true);
-    const written = JSON.parse(fs.readFileSync(outputFile, 'utf8')) as { framework: string; suites: Array<{ cases: Case[] }> };
-    expect(written.framework).toBe('cypress');
-    expect(written.suites).toHaveLength(1);
-    expect(written.suites[0]!.cases).toHaveLength(1);
-    expect(written.suites[0]!.cases[0]!.name).toBe('test');
+    const written = fs.readdirSync(outputDir).filter((f) => f.endsWith('.json'));
+    expect(written).toHaveLength(1);
+    const collect = JSON.parse(fs.readFileSync(path.join(outputDir, written[0]!), 'utf8')) as {
+      suites: Array<{ cases: Case[] }>;
+    };
+    expect(collect.suites[0]!.cases[0]!.name).toBe('a passing test');
   });
 
-  // Regression test for a real bug found in self-review: outputFile mode
-  // originally only guarded the final /collect POST — a failing spec's
-  // video still went through the normal upload-attempt path (events.ts's
-  // after:spec calls uploadVideo() whenever config.uploadVideos is true,
-  // which defaulted true even in outputFile mode), firing a real, token-less
-  // presign request. A MockAgent interceptor that WOULD succeed if hit is
-  // registered here specifically so this test can positively prove no
-  // attempt was made — asserting only "no attachment ended up in the
-  // output" would pass just as well for "attempted, failed, dropped",
-  // exactly the gap that let the original bug ship unnoticed.
-  it('outputFile mode never attempts a video upload, even for a failing spec\'s video', async () => {
+  it('stamps shardIndex on every case when config.shardIndex is set', async () => {
     const { on, fire, fireTask } = createFakeOn();
     const buffer = new CaseBuffer();
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
     const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
-    const outputFile = path.join(tmpDir, 'shard-0.json');
-    // Routed through the REAL resolveConfig(), not a hand-built
-    // ResolvedPluginConfig — this is deliberate. A hand-built config (as
-    // BASE_CONFIG's other tests use) can carry `outputFile` and
-    // `uploadVideos: true` simultaneously, a combination resolveConfig's own
-    // contract guarantees can never happen; testing that impossible state
-    // wouldn't exercise the actual fix (config normalization lives inside
-    // resolveConfig, not in events.ts itself) — confirmed by hand: this
-    // exact test, with a spread-literal config instead of this call, still
-    // passed even with the resolveConfig fix reverted.
-    const config = resolveConfig(
-      {
-        ...BASE_CONFIG,
-        token: '',
-        outputFile,
-        apiEndpoint: ENDPOINT,
-        uploadVideos: true, // explicit true — must still be forced off
-      },
-      { detectGit: () => ({}), detectCi: () => ({}) },
-    );
+    const outputDir = freshOutputDir();
+    const config: ResolvedPluginConfig = { ...BASE_CONFIG, outputDir, shardIndex: 2 };
 
     registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
     registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
-    let presignCallCount = 0;
-    const pool = mockAgent.get(ENDPOINT);
-    pool
-      .intercept({ path: '/api/v1/attachments/upload-url', method: 'POST' })
-      .reply(() => {
-        presignCallCount += 1;
-        return { statusCode: 200, data: JSON.stringify({ storageKey: 'should-never-happen', uploadUrl: `${ENDPOINT}/put-here` }) };
-      })
-      .persist();
-
-    const videoPath = path.join(tmpDir, 'a.cy.ts.mp4');
-    fs.writeFileSync(videoPath, Buffer.from('fake video bytes'));
-
     fire('before:spec', fakeSpec('a.cy.ts'));
     testPhaseGate.markStarted();
-    const testCase: Case = { id: 'suite > test', name: 'test', status: 'failed', duration: 1_000_000 };
+    const testCase: Case = { id: 'suite > a passing test', name: 'a passing test', status: 'passed', duration: 1_000_000 };
     await fireTask(TASK_REPORT_CASE, testCase);
     await fire(
       'after:spec',
       fakeSpec('a.cy.ts'),
-      fakeSpecResults({ video: videoPath, stats: { tests: 1, duration: 10, startedAt: new Date().toISOString() } }),
+      fakeSpecResults({ stats: { tests: 1, duration: 10, startedAt: new Date().toISOString() } }),
     );
+
     await fire('after:run');
 
-    expect(presignCallCount).toBe(0);
+    const written = fs.readdirSync(outputDir).filter((f) => f.endsWith('.json'))[0]!;
+    const collect = JSON.parse(fs.readFileSync(path.join(outputDir, written), 'utf8')) as {
+      suites: Array<{ cases: Case[] }>;
+    };
+    expect(collect.suites[0]!.cases[0]!.shardIndex).toBe(2);
+  });
 
-    const written = JSON.parse(fs.readFileSync(outputFile, 'utf8')) as { suites: Array<{ cases: Case[] }> };
-    expect(written.suites[0]!.cases[0]!.attachments ?? []).toHaveLength(0);
+  it('writes distinct filenames across two consecutive runs into the same outputDir', async () => {
+    const outputDir = freshOutputDir();
+
+    for (let i = 0; i < 2; i++) {
+      const { on, fire, fireTask } = createFakeOn();
+      const buffer = new CaseBuffer();
+      const pendingAttachments = new PendingAttachmentQueue();
+      const testPhaseGate = new TestPhaseGate();
+      const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
+      const config: ResolvedPluginConfig = { ...BASE_CONFIG, outputDir };
+
+      registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
+      registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
+
+      fire('before:spec', fakeSpec('a.cy.ts'));
+      testPhaseGate.markStarted();
+      const testCase: Case = { id: `suite > test ${i}`, name: `test ${i}`, status: 'passed', duration: 1_000_000 };
+      await fireTask(TASK_REPORT_CASE, testCase);
+      await fire(
+        'after:spec',
+        fakeSpec('a.cy.ts'),
+        fakeSpecResults({ stats: { tests: 1, duration: 10, startedAt: new Date().toISOString() } }),
+      );
+
+      await fire('after:run');
+    }
+
+    const written = fs.readdirSync(outputDir).filter((f) => f.endsWith('.json'));
+    expect(written).toHaveLength(2);
   });
 });

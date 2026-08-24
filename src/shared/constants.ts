@@ -18,13 +18,6 @@ export const TASK_REPORT_CASE = 'qualflareReportCase';
  * is) from one taken during a real test's own execution. */
 export const TASK_MARK_TEST_PHASE_STARTED = 'qualflareMarkTestPhaseStarted';
 
-/** HTTP headers used against `/api/v1/collect`. */
-export const HEADER_TOKEN = 'QF_TOKEN';
-export const HEADER_IDEMPOTENCY_KEY = 'Idempotency-Key';
-export const HEADER_CONTENT_TYPE = 'Content-Type';
-export const HEADER_ACCEPT = 'Accept';
-export const HEADER_USER_AGENT = 'User-Agent';
-
 /** Server-side caps this client should respect defensively (see
  * `api-service/internal/core/domain/launch/launch.go`). */
 export const MAX_SUITES_PER_LAUNCH = 2000;

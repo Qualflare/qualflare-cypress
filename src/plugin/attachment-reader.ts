@@ -1,29 +1,27 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import type { SendOptions } from '../http/client.js';
 import { logger } from '../shared/logger.js';
 import type { Attachment } from '../shared/types.js';
-import { uploadVideo } from './video-uploader.js';
+import { copyVideoAttachment } from './video-uploader.js';
 
-/** Extensions/mime-prefixes routed through the video-upload flow instead of
+/** Extensions/mime-prefixes routed through the video-copy flow instead of
  * the inline-base64 path below. Broader than the server's own MIME
  * allowlist (`.avi`/`.mkv` included) so this still correctly IDENTIFIES a
- * video attachment even in a format the server can't accept — `uploadVideo`
- * is what actually enforces the narrower allowlist and warns/skips a format
- * outside it. Nothing in this codebase currently produces `.avi`/`.mkv`
- * (`events.ts`'s `after:screenshot` handler always hardcodes `image/png`,
- * and Cypress itself only ever records `.mp4`), but a `qualflare.attachmentFromFile()`
- * call can point at any local file. */
+ * video attachment even in a format the server can't accept —
+ * `copyVideoAttachment` is what actually enforces the narrower allowlist and
+ * warns/skips a format outside it. Nothing in this codebase currently
+ * produces `.avi`/`.mkv` (`events.ts`'s `after:screenshot` handler always
+ * hardcodes `image/png`, and Cypress itself only ever records `.mp4`), but a
+ * `qualflare.attachmentFromFile()` call can point at any local file. */
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv']);
 
 export interface AttachmentReaderConfig {
   attachScreenshots: boolean;
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
-  uploadVideos: boolean;
   maxVideoBytes: number;
-  httpOptions: SendOptions;
+  outputDir: string;
 }
 
 /**
@@ -99,8 +97,9 @@ function readAttachmentFile(filePath: string, maxAttachmentBytes: number, budget
 
 /**
  * Resolves a Case's attachment references into either inline base64
- * `content` (small files) or an uploaded `storageKey` (video — see
- * `video-uploader.ts`), or drops them. Attachment references arrive with
+ * `content` (small files) or a `localVideoPath` pointing at a copy made
+ * alongside the report output (video — see `video-uploader.ts`'s
+ * `copyVideoAttachment`), or drops them. Attachment references arrive with
  * only a `path` (never bytes — screenshots are captured entirely Node-side
  * via the `after:screenshot` plugin event in `events.ts`, and an author's
  * `qualflare.attachmentFromFile()` call carries only the path it was given
@@ -112,15 +111,15 @@ function readAttachmentFile(filePath: string, maxAttachmentBytes: number, budget
  * attachment is skipped ENTIRELY (not degraded to a contentless path-only
  * entry): the server's `path` field is explicitly informational/never-fetched,
  * so a contentless entry has little value and this keeps the behavior
- * simple and predictable. A video attachment that fails to upload (oversized
- * per `maxVideoBytes`, unsupported format, or a network/API error) is
- * skipped the same way — `uploadVideo` already logs why.
+ * simple and predictable. A video attachment that fails to copy (oversized
+ * per `maxVideoBytes`, unsupported format, or an unreadable source file) is
+ * skipped the same way — `copyVideoAttachment` already logs why.
  */
-export async function resolveAttachments(
+export function resolveAttachments(
   attachments: Attachment[] | undefined,
   config: AttachmentReaderConfig,
   budget: AttachmentBudget,
-): Promise<Attachment[] | undefined> {
+): Attachment[] | undefined {
   if (!attachments || attachments.length === 0) {
     return undefined;
   }
@@ -131,24 +130,20 @@ export async function resolveAttachments(
   const resolved: Attachment[] = [];
   for (const attachment of attachments) {
     if (isVideoLike(attachment)) {
-      if (!config.uploadVideos) {
-        logger.info(`skipping video attachment "${attachment.name}": uploadVideos is disabled.`);
-        continue;
-      }
       if (!attachment.path) {
-        logger.warn(`skipping video attachment "${attachment.name}": no local file path to upload.`);
+        logger.warn(`skipping video attachment "${attachment.name}": no local file path to copy.`);
         continue;
       }
-      const uploaded = await uploadVideo(attachment.path, config.maxVideoBytes, config.httpOptions);
-      if (!uploaded) {
-        // uploadVideo already logged the specific reason.
+      const copied = copyVideoAttachment(attachment.path, config.outputDir, config.maxVideoBytes);
+      if (!copied) {
+        // copyVideoAttachment already logged the specific reason.
         continue;
       }
       resolved.push({
         ...attachment,
-        mimeType: uploaded.mimeType,
-        storageKey: uploaded.storageKey,
-        fileSize: uploaded.fileSize,
+        mimeType: copied.mimeType,
+        localVideoPath: copied.localVideoPath,
+        fileSize: copied.fileSize,
       });
       continue;
     }

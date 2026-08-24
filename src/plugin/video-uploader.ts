@@ -1,116 +1,81 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
-import { putObject, requestUploadUrl, type SendOptions } from '../http/client.js';
 import { logger } from '../shared/logger.js';
-import type { ResolvedPluginConfig } from './resolve-config.js';
-import { PACKAGE_VERSION } from './version.js';
-
-/** Builds the `SendOptions` shared by every HTTP call this reporter makes
- * (the final `/collect` POST, the video presign request, and — implicitly,
- * via the presigned URL itself — the R2 PUT) from the resolved plugin
- * config. Centralized so the `userAgent` string is constructed exactly once. */
-export function buildHttpOptions(config: ResolvedPluginConfig): SendOptions {
-  return {
-    endpoint: config.apiEndpoint,
-    token: config.token,
-    timeoutMs: config.timeoutMs,
-    retry: config.retry,
-    userAgent: `qualflare-cypress/${PACKAGE_VERSION}`,
-    debug: config.debug,
-  };
-}
 
 /** Extension -> MIME type for the video formats the server accepts (see
  * `launch.AllowedAttachmentUploadMimeTypes` server-side). Cypress itself
  * always records `.mp4` today, but `.webm`/`.mov` are listed for parity with
  * the server's own allowlist and in case that ever changes. An extension not
- * in this map (Cypress video is never `.avi`/`.mkv`, but a user could point
- * `uploadVideos` config at an arbitrary file some other way) is skipped —
- * see `uploadVideo`'s doc comment. */
+ * in this map (a user could point `qualflare.attachmentFromFile()` at an
+ * arbitrary file) is skipped — see `copyVideoAttachment`'s doc comment. */
 const VIDEO_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
 };
 
-export interface VideoUploadResult {
-  storageKey: string;
+export interface VideoCopyResult {
+  /** Filename relative to the `outputDir` this was copied into — never an
+   * absolute path, since the whole directory travels together as one CI
+   * artifact bundle (see the design spec's "Why no backend changes"
+   * section). */
+  localVideoPath: string;
   fileSize: number;
   mimeType: string;
 }
 
 /**
- * Uploads one video file to R2 via the presigned-upload-URL flow
- * (`POST /api/v1/attachments/upload-url` -> PUT bytes -> return the
- * `storageKey` a later `/collect` payload references — see
- * `Attachment.storageKey`'s doc comment in shared/types.ts) and returns
- * enough to build that `Attachment` entry.
+ * Copies one video file into `outputDir` under a unique filename (Allure's
+ * `FileSystemWriter.writeAttachmentFromPath` pattern: `fs.copyFileSync`,
+ * never read into memory) and returns enough to build that `Attachment`
+ * entry's `localVideoPath`. `qualflare-cli` is what actually uploads this
+ * file later, once it has a real auth token — see the design spec.
  *
  * Best-effort, like the rest of this reporter's attachment handling
  * (`attachment-reader.ts`'s oversized/unreadable-file skip): any failure —
- * oversized file, unsupported extension, network/API error — is logged as a
- * warning and resolves to `undefined` rather than throwing, so a video
- * upload problem never fails the whole run (independent of
- * `failOnUploadError`, which is scoped to the actual `/collect` POST, not to
- * best-effort attachment resolution).
+ * oversized file, unsupported extension, an unreadable source file — is
+ * logged as a warning and resolves to `undefined` rather than throwing, so a
+ * video problem never fails the whole run.
  */
-export async function uploadVideo(
+export function copyVideoAttachment(
   filePath: string,
+  outputDir: string,
   maxVideoBytes: number,
-  httpOptions: SendOptions,
-): Promise<VideoUploadResult | undefined> {
-  const mimeType = VIDEO_MIME_TYPES_BY_EXTENSION[path.extname(filePath).toLowerCase()];
+): VideoCopyResult | undefined {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = VIDEO_MIME_TYPES_BY_EXTENSION[ext];
   if (!mimeType) {
-    logger.warn(`skipping video upload for "${filePath}": unsupported video format.`);
+    logger.warn(`skipping video attachment "${filePath}": unsupported video format.`);
     return undefined;
   }
 
   let fileSize: number;
   try {
-    // Stat BEFORE reading — an oversized file must never be loaded into
-    // memory just to discover it should be skipped (same discipline as
-    // attachment-reader.ts's readAttachmentFile).
+    // Stat BEFORE copying — an oversized file must never be copied just to
+    // discover it should be skipped.
     fileSize = fs.statSync(filePath).size;
   } catch (err) {
-    logger.warn(`skipping video upload for "${filePath}": could not stat file: ${(err as Error).message}`);
+    logger.warn(`skipping video attachment "${filePath}": could not stat file: ${(err as Error).message}`);
     return undefined;
   }
   if (fileSize > maxVideoBytes) {
     logger.warn(
-      `skipping video upload for "${filePath}": ${fileSize} bytes exceeds the configured ` +
+      `skipping video attachment "${filePath}": ${fileSize} bytes exceeds the configured ` +
         `maxVideoBytes cap of ${maxVideoBytes} bytes.`,
     );
     return undefined;
   }
 
-  const filename = path.basename(filePath);
-
-  let uploadUrl: string;
-  let storageKey: string;
+  const localVideoPath = `${randomUUID()}${ext}`;
   try {
-    const res = await requestUploadUrl(httpOptions, filename, mimeType, fileSize);
-    uploadUrl = res.uploadUrl;
-    storageKey = res.storageKey;
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.copyFileSync(filePath, path.join(outputDir, localVideoPath));
   } catch (err) {
-    logger.warn(`skipping video upload for "${filePath}": failed to obtain an upload URL: ${(err as Error).message}`);
+    logger.warn(`skipping video attachment "${filePath}": could not copy file: ${(err as Error).message}`);
     return undefined;
   }
 
-  let body: Buffer;
-  try {
-    body = fs.readFileSync(filePath);
-  } catch (err) {
-    logger.warn(`skipping video upload for "${filePath}": could not read file: ${(err as Error).message}`);
-    return undefined;
-  }
-
-  try {
-    await putObject(uploadUrl, body, mimeType, httpOptions.timeoutMs);
-  } catch (err) {
-    logger.warn(`skipping video upload for "${filePath}": upload failed: ${(err as Error).message}`);
-    return undefined;
-  }
-
-  return { storageKey, fileSize, mimeType };
+  return { localVideoPath, fileSize, mimeType };
 }
