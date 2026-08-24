@@ -62,7 +62,8 @@ jobs:
   test:
     strategy:
       matrix:
-        shard: [1, 2, 3, 4]
+        # 0-based to match shardIndex's documented semantics.
+        shard: [0, 1, 2, 3]
     steps:
       - run: npx cypress run
         env:

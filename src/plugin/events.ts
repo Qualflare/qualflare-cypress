@@ -63,7 +63,7 @@ export function registerEvents(
     if (!testPhaseGate.hasStarted()) {
       logger.warn(
         `a screenshot ("${details.name || 'unnamed'}") was captured before any test in this spec had ` +
-          'started (likely in a root `before()` hook) and cannot be attributed to a specific test — it was not uploaded.',
+          'started (likely in a root `before()` hook) and cannot be attributed to a specific test — it was not included in the report.',
       );
       return;
     }
@@ -90,10 +90,10 @@ export function registerEvents(
     // exact owning Case — attaching it to the first failing case in the
     // spec is the most useful available attribution (that's the recording a
     // QA engineer actually wants to watch) and, being a single Case row,
-    // avoids double-counting the same R2 object's bytes toward workspace
+    // avoids double-counting the same copied file's bytes toward workspace
     // storage quota the way attaching it to every failing case would.
     // Skipped entirely for an all-passing spec: a video with nothing to
-    // investigate has little diagnostic value and isn't worth the upload.
+    // investigate has little diagnostic value and isn't worth copying.
     if (results.video) {
       const failedCase = cases.find((c) => FAILURE_STATUSES.has(c.status));
       if (failedCase) {
@@ -117,7 +117,7 @@ export function registerEvents(
     if (cases.length !== results.stats.tests) {
       logger.warn(
         `spec ${spec.relative}: captured ${cases.length} case(s) but Cypress reported ` +
-          `${results.stats.tests} test(s) — some results may be missing from the uploaded report.`,
+          `${results.stats.tests} test(s) — some results may be missing from the report.`,
       );
     }
 
@@ -132,7 +132,7 @@ export function registerEvents(
     if (orphaned.length > 0) {
       logger.warn(
         `spec ${spec.relative}: ${orphaned.length} screenshot(s) could not be attributed to a ` +
-          'specific test (likely taken outside a test body, e.g. in an `after` hook) and were not uploaded.',
+          'specific test (likely taken outside a test body, e.g. in an `after` hook) and were not included in the report.',
       );
     }
   });
