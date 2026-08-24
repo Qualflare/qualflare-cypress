@@ -110,6 +110,12 @@ export interface Attachment {
    * inline (video); if both are set, `storageKey` wins server-side. Max 1024
    * chars. */
   storageKey?: string;
+  /** Set when this is a video the reporter copied into the same output
+   * directory as the report file, rather than uploading it itself —
+   * `qualflare-cli` resolves this into a real `storageKey` at collect time.
+   * Relative to the report file's own directory. Never sent to `/collect`
+   * directly; mutually exclusive with `content`/`storageKey`. */
+  localVideoPath?: string;
   /** Byte size of the object at `storageKey`. Ignored when `storageKey` is
    * unset. */
   fileSize?: number;
