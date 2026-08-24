@@ -3,7 +3,6 @@ import { registerEvents } from './events.js';
 import { resolveConfig, type QualflareCypressOptions } from './resolve-config.js';
 import { PendingAttachmentQueue, TestPhaseGate } from './state.js';
 import { CaseBuffer, registerTasks } from './tasks.js';
-import { buildHttpOptions } from './video-uploader.js';
 
 export type { QualflareCypressOptions, ResolvedPluginConfig } from './resolve-config.js';
 export { QualflareConfigError } from './resolve-config.js';
@@ -37,10 +36,8 @@ export function qualflareCypress(
   const pendingAttachments = new PendingAttachmentQueue();
   const testPhaseGate = new TestPhaseGate();
   const attachmentBudget = new AttachmentBudget(resolved.maxTotalAttachmentBytes);
-  // resolved already has every field AttachmentReaderConfig needs except
-  // httpOptions (deliberately not part of the publicly-exported
-  // ResolvedPluginConfig type — see video-uploader.ts's buildHttpOptions).
-  const attachmentConfig: AttachmentReaderConfig = { ...resolved, httpOptions: buildHttpOptions(resolved) };
+  // resolved already has every field AttachmentReaderConfig needs.
+  const attachmentConfig: AttachmentReaderConfig = resolved;
 
   // Task handlers are always registered — even when disabled — so a
   // cy.task() call from the browser side never errors with "no handler
