@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
-import { QualflareHttpClient } from '../http/client.js';
 import { MAX_ATTACHMENTS_PER_CASE } from '../shared/constants.js';
 import { logger } from '../shared/logger.js';
 import { msToNs } from '../shared/duration.js';
@@ -9,7 +10,7 @@ import { buildCollectPayload, type BrowserInfo } from './collect-builder.js';
 import type { ResolvedPluginConfig } from './resolve-config.js';
 import { LaunchAccumulator, PendingAttachmentQueue, TestPhaseGate } from './state.js';
 import type { CaseBuffer } from './tasks.js';
-import { buildHttpOptions, uploadVideo } from './video-uploader.js';
+import { copyVideoAttachment } from './video-uploader.js';
 
 /** Case statuses a video recording is worth attaching to — mirrors the
  * "this test needs investigating" set, not just literally 'failed'. */
@@ -18,8 +19,10 @@ const FAILURE_STATUSES: ReadonlySet<CaseStatus> = new Set(['failed', 'error', 't
 /**
  * Registers `before:run` / `before:spec` / `after:spec` / `after:run` /
  * `after:screenshot` on the given Cypress plugin events, wiring the
- * spec-by-spec case buffer into one accumulated `Launch` and POSTing it
- * exactly once at `after:run`.
+ * spec-by-spec case buffer into one accumulated `Launch` and writing it as a
+ * single Collect JSON file into `config.outputDir` exactly once at
+ * `after:run` — this process never uploads anything itself; see
+ * `resolve-config.ts`'s `outputDir` doc comment.
  */
 export function registerEvents(
   on: Cypress.PluginEvents,
@@ -31,12 +34,6 @@ export function registerEvents(
   const accumulator = new LaunchAccumulator();
   let browserInfo: BrowserInfo | undefined;
   let currentSpecStart = 0;
-
-  // Built once and reused by both after:spec (video upload, if any) and
-  // after:run (the final /collect POST) — hoisted out of after:run, which
-  // used to be the only consumer, so a spec's video can be uploaded as soon
-  // as that spec finishes rather than deferred to the very end of the run.
-  const httpOptions = buildHttpOptions(config);
 
   on('before:run', (details) => {
     browserInfo = {
@@ -97,21 +94,16 @@ export function registerEvents(
     // storage quota the way attaching it to every failing case would.
     // Skipped entirely for an all-passing spec: a video with nothing to
     // investigate has little diagnostic value and isn't worth the upload.
-    if (results.video && config.uploadVideos) {
+    if (results.video) {
       const failedCase = cases.find((c) => FAILURE_STATUSES.has(c.status));
       if (failedCase) {
-        const uploaded = await uploadVideo(results.video, config.maxVideoBytes, httpOptions);
-        if (uploaded) {
-          attachVideo(failedCase, uploaded);
+        const copied = copyVideoAttachment(results.video, config.outputDir, config.maxVideoBytes);
+        if (copied) {
+          attachVideo(failedCase, copied);
         }
       } else {
-        logger.info(
-          `spec ${spec.relative} recorded a video but no test failed — not uploaded ` +
-            '(only failure recordings are uploaded; set `uploadVideos: false` to silence this).',
-        );
+        logger.info(`spec ${spec.relative} recorded a video but no test failed — not attached.`);
       }
-    } else if (results.video) {
-      logger.info(`spec ${spec.relative} recorded a video at ${results.video} — not uploaded (uploadVideos is disabled).`);
     }
 
     const suite: Suite = {
@@ -148,38 +140,23 @@ export function registerEvents(
   on('after:run', async () => {
     const suites = accumulator.getSuites();
     if (suites.length === 0) {
-      logger.info(`no test results were captured this run — skipping ${config.outputFile ? 'file write' : 'upload'}.`);
+      logger.info('no test results were captured this run — skipping file write.');
       return;
     }
 
     const collect = buildCollectPayload(accumulator, config, browserInfo);
-
-    // Sharded CI: write this process's own Collect JSON to disk instead of
-    // POSTing it. A separate aggregation step (after all shards' files are
-    // collected, e.g. via CI artifact download) merges them into one launch
-    // via `qualflare-cli upload --shard <files...>` — see docs/LIMITATIONS.md.
-    // No HTTP client is ever constructed in this mode; resolveConfig already
-    // skipped the token-required check for the same reason.
-    if (config.outputFile) {
-      fs.writeFileSync(config.outputFile, JSON.stringify(collect));
-      logger.info(
-        `wrote Collect payload to ${config.outputFile} — not uploaded (outputFile mode). ` +
-          'Merge shard files and upload once via `qualflare-cli upload --shard <files...>`.',
-      );
-      return;
-    }
-
-    const client = new QualflareHttpClient(httpOptions);
-
-    try {
-      const result = await client.send(collect);
-      logger.info(`uploaded launch #${result.seq} to Qualflare.`);
-    } catch (err) {
-      logger.error(`failed to upload results to Qualflare: ${(err as Error).message}`);
-      if (config.failOnUploadError) {
-        throw err;
+    if (config.shardIndex !== undefined) {
+      for (const suite of collect.suites) {
+        for (const c of suite.cases) {
+          c.shardIndex = config.shardIndex;
+        }
       }
     }
+
+    fs.mkdirSync(config.outputDir, { recursive: true });
+    const outputPath = path.join(config.outputDir, `${randomUUID()}.json`);
+    fs.writeFileSync(outputPath, JSON.stringify(collect));
+    logger.info(`wrote Collect payload to ${outputPath} — run \`qualflare-cli collect ${config.outputDir}\` to upload it.`);
   });
 }
 
@@ -187,7 +164,7 @@ export function registerEvents(
  * per-case attachment cap — a spec-level video competing with the case's
  * own screenshots for that budget is an edge case (one video vs. up to 50
  * screenshots), but silently exceeding the cap would 400 the whole launch. */
-function attachVideo(testCase: Case, uploaded: { storageKey: string; fileSize: number; mimeType: string }): void {
+function attachVideo(testCase: Case, copied: { localVideoPath: string; fileSize: number; mimeType: string }): void {
   const attachments = testCase.attachments ?? [];
   if (attachments.length >= MAX_ATTACHMENTS_PER_CASE) {
     logger.warn(
@@ -199,9 +176,9 @@ function attachVideo(testCase: Case, uploaded: { storageKey: string; fileSize: n
     ...attachments,
     {
       name: 'video',
-      mimeType: uploaded.mimeType,
-      storageKey: uploaded.storageKey,
-      fileSize: uploaded.fileSize,
+      mimeType: copied.mimeType,
+      localVideoPath: copied.localVideoPath,
+      fileSize: copied.fileSize,
     },
   ];
 }
