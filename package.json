@@ -51,14 +51,14 @@
     "provenance": true
   },
   "peerDependencies": {
-    "cypress": ">=12.0.0 <15.0.0"
+    "cypress": ">=12.0.0"
   },
   "dependencies": {
     "ci-info": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^18.19.50",
-    "cypress": "^14.0.0",
+    "cypress": "^15.0.0",
     "eslint": "^9.9.1",
     "execa": "^9.3.1",
     "prettier": "^3.3.3",

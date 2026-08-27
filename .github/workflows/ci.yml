@@ -32,10 +32,14 @@ jobs:
       fail-fast: false
       matrix:
         # Validates the `peerDependencies.cypress` range declared in
-        # package.json (">=12.0.0 <15.0.0") empirically, not just by
-        # assertion — each leg installs its own Cypress version over the
-        # one from package-lock before running the real end-to-end suite.
-        cypress: ['^12.0.0', '^13.0.0', '^14.0.0']
+        # package.json (">=12.0.0") empirically, not just by assertion —
+        # each leg installs its own Cypress version over the one from
+        # package-lock before running the real end-to-end suite.
+        #
+        # The peer range is open-ended, so this matrix can only ever prove
+        # the majors that existed when it was last touched. Add a leg when
+        # Cypress ships a new major; the range itself needs no edit.
+        cypress: ['^12.0.0', '^13.0.0', '^14.0.0', '^15.0.0']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

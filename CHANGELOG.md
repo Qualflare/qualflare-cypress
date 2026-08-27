@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.0 — BREAKING
 
+- `peerDependencies.cypress` widened from `>=12.0.0 <15.0.0` to `>=12.0.0`. The upper bound made
+  every new Cypress major a hard `npm install` failure (peer conflicts are errors, not warnings,
+  in npm 7+) until a release of this package caught up — including Cypress 15, which is fully
+  compatible. Verified against Cypress 15.21.1: typecheck, 190 unit tests, and the real
+  `cypress run` integration suite all pass unchanged. CI's integration matrix gains a `^15.0.0`
+  leg alongside 12/13/14.
+- **Requires `qualflare-cli >= v0.1.16`**, the first release whose `qf collect` can parse the
+  report directory this reporter writes. Older CLI versions will not recognize the output.
 - Direct POST to `/collect` removed. This reporter now only ever writes a report file (and any
   video attachments) into `outputDir` — `qualflare-cli collect <outputDir>` is required to upload
   results, for every run, sharded or not.
