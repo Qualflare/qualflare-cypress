@@ -17,7 +17,14 @@ inside your Cypress run.
 npm install --save-dev @qualflare/cypress
 ```
 
-Requires Cypress `>=12.0.0 <15.0.0` (installed separately as a peer dependency) and Node `>=18`.
+Requires Cypress `>=12.0.0` (installed separately as a peer dependency). Node `>=18` for
+Cypress 12–14; Cypress 15 itself requires Node `>=20`.
+
+The peer range is deliberately open-ended rather than capped at a known-good major, so a new
+Cypress release never hard-blocks `npm install` for you. Every major from 12 through 15 is
+exercised in CI against a real `cypress run`; majors newer than that are untested but not
+refused — please [open an issue](https://github.com/Qualflare/qualflare-cypress/issues) if
+one misbehaves.
 
 ## Quickstart
 
