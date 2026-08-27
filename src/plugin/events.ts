@@ -10,7 +10,7 @@ import { buildCollectPayload, type BrowserInfo } from './collect-builder.js';
 import type { ResolvedPluginConfig } from './resolve-config.js';
 import { LaunchAccumulator, PendingAttachmentQueue, TestPhaseGate } from './state.js';
 import type { CaseBuffer } from './tasks.js';
-import { copyVideoAttachment } from './video-uploader.js';
+import { copyVideoAttachment } from './video-writer.js';
 
 /** Case statuses a video recording is worth attaching to — mirrors the
  * "this test needs investigating" set, not just literally 'failed'. */

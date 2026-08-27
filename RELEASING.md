@@ -24,11 +24,20 @@ Beyond the steps above, before the first `1.0.0`:
 - [ ] The real-Cypress integration suite (`npm run test:integration`) has been run successfully in
       CI across the full declared `peerDependencies.cypress` range, not just locally.
 - [ ] **Manual smoke test against a live Qualflare account** — this cannot be automated in CI
-      (it needs a real `QUALFLARE_TOKEN` and a real project to observe results in): run
-      `examples/basic` (see its own README) against a real Qualflare project, and confirm in the
-      Qualflare UI that the resulting Launch shows the expected suites/cases/steps/labels/screenshots
-      correctly — this is the actual end-to-end proof that the wire-contract implementation matches
-      what's live in production, not just what the mock server in `test/integration/` asserts.
+      (it needs a real project to observe results in): run `examples/basic` (see its own README),
+      then upload its `outputDir` with `qf <identifier> collect ./qualflare-results`, and confirm in
+      the Qualflare UI that the resulting Launch shows the expected
+      suites/cases/steps/labels/screenshots correctly — this is the actual end-to-end proof that the
+      wire-contract implementation matches what's live in production, not just what the fixture
+      assertions in `test/integration/` cover. The credential lives with the CLI
+      (`qf login <identifier> <token>`); this reporter has none.
+- [ ] **Smoke-test the PUBLISHED tarball, not just the local build** — `npm pack`/install the
+      published version by name into a scratch project and run it. A broken `files` array or
+      `exports` map is invisible to every local check.
+- [ ] **The matching `@qualflare/cli` release is already published** — this package writes a report
+      format only `@qualflare/cli >= v0.1.16` can parse. Publishing a reporter ahead of the CLI that
+      reads it produces silent data loss for anyone who upgrades: the run writes files nothing can
+      collect.
 - [ ] `docs/CONFIGURATION.md`, `docs/LIMITATIONS.md`, and `docs/METADATA-API.md` reviewed for
       accuracy against the actual shipped `src/plugin/resolve-config.ts`/`src/browser/metadata-api.ts`
       (not the other way around — code is the source of truth, regenerate docs from it if they've

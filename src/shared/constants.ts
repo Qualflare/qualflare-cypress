@@ -29,7 +29,6 @@ export const MAX_LABELS_PER_CASE = 100;
 export const MAX_LINKS_PER_CASE = 20;
 export const MAX_TAGS_PER_CASE = 64;
 export const MAX_TAG_LENGTH = 255;
-export const MAX_IDEMPOTENCY_KEY_CHARS = 255;
 
 /** Mirrors `launch.MaxAttachmentUploadFileSize` — the server's hard cap on a
  * single `POST /api/v1/attachments/upload-url` request (video). */

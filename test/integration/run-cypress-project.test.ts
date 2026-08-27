@@ -148,7 +148,7 @@ describe('qualflare-cypress against a real cypress run', () => {
       );
 
       // Video-attachment coverage (see events.ts's after:spec handler /
-      // video-uploader.ts's copyVideoAttachment): the fixture project has
+      // video-writer.ts's copyVideoAttachment): the fixture project has
       // `video: true`, and both `failing.cy.ts` and `hook-failure.cy.ts` are
       // single-case specs whose one case fails — Cypress's per-spec video
       // recording gets copied into `outputDir` and attached to that case as

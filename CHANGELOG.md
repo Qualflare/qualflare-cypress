@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- `src/http/` deleted entirely (`backoff.ts`, `errors.ts`, `idempotency.ts`). Nothing has
+  imported these since 0.2.0 removed the HTTP client; they tree-shook out of the published bundle,
+  so this changes no shipped behavior — it just stops the repo claiming to have an HTTP layer.
+- `MAX_IDEMPOTENCY_KEY_CHARS`, whose only consumer was the deleted `idempotency.ts`.
+
+### Changed
+
+- `src/plugin/video-uploader.ts` renamed to `video-writer.ts`. It has only exported
+  `copyVideoAttachment` since 0.2.0 — it copies a file into `outputDir` and uploads nothing.
+  Internal only; the bundled entry points are unchanged.
+- `RELEASING.md` no longer tells the releaser to set `QUALFLARE_TOKEN` for the manual smoke
+  test (this reporter has no token), and gains two checks learned the hard way: smoke-test the
+  published tarball rather than the local build, and confirm the matching `@qualflare/cli`
+  release is out first.
+
+## Unreleased
+
+### Removed
+
 - `QualflareConfigError` is no longer exported. It existed only to report an unresolvable `token`,
   which `0.2.0` removed — leaving a public error class that could never be thrown. Nothing can have
   a working `catch` on it, so this is breaking by letter only.

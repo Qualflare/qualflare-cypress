@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { logger } from '../shared/logger.js';
 import type { Attachment } from '../shared/types.js';
-import { copyVideoAttachment } from './video-uploader.js';
+import { copyVideoAttachment } from './video-writer.js';
 
 /** Extensions/mime-prefixes routed through the video-copy flow instead of
  * the inline-base64 path below. Broader than the server's own MIME
@@ -98,7 +98,7 @@ function readAttachmentFile(filePath: string, maxAttachmentBytes: number, budget
 /**
  * Resolves a Case's attachment references into either inline base64
  * `content` (small files) or a `localVideoPath` pointing at a copy made
- * alongside the report output (video — see `video-uploader.ts`'s
+ * alongside the report output (video — see `video-writer.ts`'s
  * `copyVideoAttachment`), or drops them. Attachment references arrive with
  * only a `path` (never bytes — screenshots are captured entirely Node-side
  * via the `after:screenshot` plugin event in `events.ts`, and an author's
