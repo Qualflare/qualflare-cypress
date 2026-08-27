@@ -26,6 +26,9 @@ exercised in CI against a real `cypress run`; majors newer than that are unteste
 refused — please [open an issue](https://github.com/Qualflare/qualflare-cypress/issues) if
 one misbehaves.
 
+(Contributors: the repo itself now develops against Cypress 15, which requires Node `>=20.1`.
+The `>=18` floor above is the *consumer* requirement and still holds for Cypress 12–14.)
+
 ## Quickstart
 
 ```ts
@@ -67,9 +70,8 @@ qf my-project collect ./qualflare-results
 ```
 
 That's it — suite/test results, retries, and automatic-on-failure screenshots show up as one Launch
-once `qualflare-cli collect` runs. [`examples/basic/`](./examples/basic) has a runnable project, but
-its own instructions still describe the old direct-upload/`QUALFLARE_TOKEN` setup and haven't been
-updated for the `outputDir` model yet — follow the steps above instead, not that example's README.
+once `qualflare-cli collect` runs. [`examples/basic/`](./examples/basic) has a runnable project
+demonstrating the same flow end to end, including the `qualflare.*` metadata API.
 
 ## Enriching your tests
 

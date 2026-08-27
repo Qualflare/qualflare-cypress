@@ -102,18 +102,6 @@ function envInt(...names: string[]): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-/** Thrown when a required value (currently only `token`) can't be resolved.
- * Deliberately thrown synchronously at `qualflareCypress()` call time
- * (config-load time) rather than deferred to the final `after:run` POST —
- * failing fast before any spec runs wastes far less CI time than
- * discovering a misconfiguration only at the very end of the run. */
-export class QualflareConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'QualflareConfigError';
-  }
-}
-
 /** Resolves the full plugin configuration from, in order: the explicit
  * `options` passed to `qualflareCypress()`, then `QUALFLARE_*` environment
  * variables, then `QF_*` (compat alias with the existing Go CLI, where an

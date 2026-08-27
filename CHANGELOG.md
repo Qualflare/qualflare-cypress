@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Removed
+
+- `QualflareConfigError` is no longer exported. It existed only to report an unresolvable `token`,
+  which `0.2.0` removed — leaving a public error class that could never be thrown. Nothing can have
+  a working `catch` on it, so this is breaking by letter only.
+
+### Fixed
+
+- `examples/basic/` updated for the `outputDir` model: its README documented the removed
+  `QUALFLARE_TOKEN` upload flow, its `package.json` still pinned `@qualflare/cypress@^0.1.0`, and
+  its config comment claimed a token was required. Shipped stale in `0.2.0`.
+- CI's integration matrix no longer installs the matrix Cypress version incrementally
+  (`npm ci` + `npm install --no-save cypress@X`), which trips npm's optional-dependency pruning bug
+  ([npm/cli#4828](https://github.com/npm/cli/issues/4828)) and silently drops platform binaries.
+- README now states the contributor Node floor (`>=20.1`, from developing against Cypress 15),
+  which differs from the consumer floor (`>=18`, still valid for Cypress 12–14).
+
 ## 0.2.0 — BREAKING
 
 - `peerDependencies.cypress` widened from `>=12.0.0 <15.0.0` to `>=12.0.0`. The upper bound made

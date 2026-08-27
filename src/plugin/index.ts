@@ -5,7 +5,6 @@ import { PendingAttachmentQueue, TestPhaseGate } from './state.js';
 import { CaseBuffer, registerTasks } from './tasks.js';
 
 export type { QualflareCypressOptions, ResolvedPluginConfig } from './resolve-config.js';
-export { QualflareConfigError } from './resolve-config.js';
 
 /**
  * Wires qualflare-cypress into `setupNodeEvents`. Returns `config`

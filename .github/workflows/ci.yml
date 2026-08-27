@@ -46,15 +46,26 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
-      - name: Install matrix Cypress version
-        run: npm install --no-save "cypress@${{ matrix.cypress }}"
-      - run: npm run build
       - name: Cypress binary cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/Cypress
-          key: cypress-${{ runner.os }}-${{ matrix.cypress }}-${{ hashFiles('package-lock.json') }}
+          key: cypress-${{ runner.os }}-${{ matrix.cypress }}-${{ hashFiles('package.json') }}
+      - name: Install with matrix Cypress version
+        # Deliberately a full, fresh resolution rather than `npm ci` followed
+        # by `npm install --no-save cypress@X`. That incremental form trips
+        # npm's optional-dependency pruning bug (npm/cli#4828): re-resolving
+        # one package silently drops platform-specific binaries —
+        # @rollup/rollup-linux-x64-gnu, esbuild's — and the build then dies
+        # with a MODULE_NOT_FOUND that points nowhere near the real cause.
+        # Reproduced locally twice while adding the ^15 leg. Costs ~20s more
+        # per leg than `npm ci`; worth it for a matrix that otherwise fails
+        # confusingly and intermittently.
+        run: |
+          npm pkg set devDependencies.cypress="${{ matrix.cypress }}"
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
+      - run: npm run build
       - run: npx cypress install
       - run: npx cypress verify
       - run: npm run test:integration

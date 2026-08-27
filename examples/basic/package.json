@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "description": "Minimal example of using @qualflare/cypress in a real Cypress project.",
   "devDependencies": {
-    "@qualflare/cypress": "^0.1.0",
-    "cypress": "^14.0.0"
+    "@qualflare/cypress": "^0.2.0",
+    "cypress": "^15.0.0"
   },
   "scripts": {
     "test": "cypress run"
