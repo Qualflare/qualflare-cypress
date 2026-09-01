@@ -14,6 +14,7 @@ describe('detectCi — explicit per-provider extraction table', () => {
     };
     expect(detectCi(env)).toEqual({
       ciProvider: 'GitHub Actions',
+      ciRunId: '123456',
       ciBuildNumber: '42',
       ciRunUrl: 'https://github.com/Qualflare/qualflare-cypress/actions/runs/123456',
       ciPrNumber: 17,
@@ -58,6 +59,7 @@ describe('detectCi — explicit per-provider extraction table', () => {
     };
     expect(detectCi(env)).toEqual({
       ciProvider: 'CircleCI',
+      ciRunId: '7',
       ciBuildNumber: '7',
       ciRunUrl: 'https://circleci.com/gh/org/repo/7',
       ciPrNumber: 3,
@@ -99,6 +101,7 @@ describe('detectCi — explicit per-provider extraction table', () => {
     };
     expect(detectCi(env)).toEqual({
       ciProvider: 'Jenkins',
+      ciRunId: '212',
       ciBuildNumber: '212',
       ciRunUrl: 'https://jenkins.example.com/job/foo/212/',
     });
@@ -114,6 +117,7 @@ describe('detectCi — explicit per-provider extraction table', () => {
     };
     expect(detectCi(env)).toEqual({
       ciProvider: 'Azure Pipelines',
+      ciRunId: '888',
       ciBuildNumber: '888',
       ciRunUrl: 'https://dev.azure.com/org/My%20Project/_build/results?buildId=888',
       ciPrNumber: 21,
@@ -129,6 +133,7 @@ describe('detectCi — explicit per-provider extraction table', () => {
     };
     expect(detectCi(env)).toEqual({
       ciProvider: 'Bitbucket Pipelines',
+      ciRunId: '33',
       ciBuildNumber: '33',
       ciRunUrl: 'https://bitbucket.org/org/repo/addon/pipelines/home#!/results/{abc-123}',
       ciPrNumber: 4,

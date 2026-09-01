@@ -62,6 +62,7 @@ export function buildCollectPayload(
       version: PACKAGE_VERSION,
       timestamp: new Date().toISOString(),
       cliName: 'qualflare-cypress',
+      runId: config.runId,
     },
     properties: config.properties,
     suites: accumulator.getSuites(),

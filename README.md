@@ -115,6 +115,9 @@ wrong value cannot fail at run time — this package makes no network calls — 
   `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
   finds there into one Launch, no extra flag needed (see
   [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)).
+- **A stale `outputDir` is refused, not merged** — each report carries a `runId`, and `qf collect`
+  errors rather than merging files from two different runs. Needs `@qualflare/cli` v0.1.19+; older
+  CLIs merge as before.
 - **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
   supports arbitrary nesting depth.
 
