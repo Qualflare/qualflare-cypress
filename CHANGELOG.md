@@ -5,16 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.3.0
 
-### Removed
+### Added
 
-- `src/http/` deleted entirely (`backoff.ts`, `errors.ts`, `idempotency.ts`). Nothing has
-  imported these since 0.2.0 removed the HTTP client; they tree-shook out of the published bundle,
-  so this changes no shipped behavior — it just stops the repo claiming to have an HTTP layer.
-- `MAX_IDEMPOTENCY_KEY_CHARS`, whose only consumer was the deleted `idempotency.ts`.
+- `metadata.runId` on every report, plus a `runId` option (`QUALFLARE_RUN_ID`) to set it
+  explicitly. Every shard of one CI run resolves the same value (`GITHUB_RUN_ID`,
+  `CI_PIPELINE_ID`, and so on); outside CI it is a per-process UUID.
+
+  This is what lets `qf collect` tell the shards of the current run apart from a file left behind
+  by an earlier one. Until now a stale report sitting in `outputDir` was merged into the launch
+  silently — the launch looked entirely plausible and contained results nobody ran, which corrupts
+  the history flaky-detection is built on. Requires `@qualflare/cli` v0.1.19 or newer, which
+  refuses the merge and names the offending files; older CLIs ignore `runId` and merge as before.
 
 ### Changed
+
+- The stale-file caveat in `README.md` and `docs/LIMITATIONS.md` documents what now actually
+  happens, instead of asking you to remember to clear the directory.
+
+
 
 - `src/plugin/video-uploader.ts` renamed to `video-writer.ts`. It has only exported
   `copyVideoAttachment` since 0.2.0 — it copies a file into `outputDir` and uploads nothing.
@@ -24,9 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published tarball rather than the local build, and confirm the matching `@qualflare/cli`
   release is out first.
 
-## Unreleased
-
 ### Removed
+
+- `src/http/` deleted entirely (`backoff.ts`, `errors.ts`, `idempotency.ts`). Nothing has
+  imported these since 0.2.0 removed the HTTP client; they tree-shook out of the published bundle,
+  so this changes no shipped behavior — it just stops the repo claiming to have an HTTP layer.
+- `MAX_IDEMPOTENCY_KEY_CHARS`, whose only consumer was the deleted `idempotency.ts`.
+
 
 - `QualflareConfigError` is no longer exported. It existed only to report an unresolvable `token`,
   which `0.2.0` removed — leaving a public error class that could never be thrown. Nothing can have
