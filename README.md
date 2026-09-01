@@ -103,6 +103,12 @@ Every option can be set either as a plugin option (`qualflareCypress(on, config,
 `QUALFLARE_*` environment variable. Full table, precedence rules, and auto-detection behavior (git
 branch/commit, CI provider/build/PR, browser/OS) in [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md).
 
+One option is worth calling out because it fails late: `environment` is matched against the
+environment's **uid (slug)**, not its display name, so **Staging** in the UI is `staging` here. A
+wrong value cannot fail at run time — this package makes no network calls — so the run succeeds and
+`collect` 404s afterwards. See
+[the note in the configuration docs](./docs/CONFIGURATION.md#environment-is-matched-by-uid-not-display-name).
+
 ## Known limitations
 
 - **Sharded CI runs merge automatically, but only at collect time** — point every shard's
