@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { MAX_VIDEO_UPLOAD_BYTES } from '../shared/constants.js';
 import type { Platform } from '../shared/types.js';
 import { detectCi, type CiMetadata } from './ci-detect.js';
@@ -23,6 +25,14 @@ export interface QualflareCypressOptions {
   ciBuildNumber?: string;
   ciRunUrl?: string;
   ciPrNumber?: number;
+  /** Identifier shared by every shard of one run, written into the report as
+   * `metadata.runId`. `qualflare-cli collect` groups files by it and refuses
+   * to merge a stale report from an earlier run into this launch.
+   *
+   * Auto-detected from CI. Outside CI it falls back to a per-process UUID,
+   * which is correct there: every local run is a distinct run, so a leftover
+   * file is still caught. */
+  runId?: string;
   attachScreenshots?: boolean;
   maxAttachmentBytes?: number;
   maxTotalAttachmentBytes?: number;
@@ -66,6 +76,7 @@ export interface ResolvedPluginConfig {
   ciBuildNumber?: string;
   ciRunUrl?: string;
   ciPrNumber?: number;
+  runId: string;
   attachScreenshots: boolean;
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
@@ -157,6 +168,11 @@ export function resolveConfig(
   const ciRunUrl = options.ciRunUrl ?? detectedCi.ciRunUrl;
   const ciPrNumber = options.ciPrNumber ?? detectedCi.ciPrNumber;
 
+  // Never empty on purpose: `qf collect` treats a report with no runId as
+  // "unknown run" and never lets it block a merge, so defaulting to '' would
+  // quietly opt local runs out of the very check this exists for.
+  const runId = options.runId ?? firstEnv('QUALFLARE_RUN_ID') ?? detectedCi.ciRunId ?? randomUUID();
+
   return {
     // `||` (truthy check), not `??`, for these three REQUIRED-non-empty wire
     // fields — matching `collect-builder.ts`'s `resolveOs`/`resolveBrowser`,
@@ -180,6 +196,7 @@ export function resolveConfig(
     ciBuildNumber,
     ciRunUrl,
     ciPrNumber,
+    runId,
     attachScreenshots: options.attachScreenshots ?? envBool('QUALFLARE_ATTACH_SCREENSHOTS') ?? true,
     maxAttachmentBytes: options.maxAttachmentBytes ?? envInt('QUALFLARE_MAX_ATTACHMENT_BYTES') ?? 1_500_000,
     maxTotalAttachmentBytes:

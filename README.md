@@ -103,12 +103,21 @@ Every option can be set either as a plugin option (`qualflareCypress(on, config,
 `QUALFLARE_*` environment variable. Full table, precedence rules, and auto-detection behavior (git
 branch/commit, CI provider/build/PR, browser/OS) in [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md).
 
+One option is worth calling out because it fails late: `environment` is matched against the
+environment's **uid (slug)**, not its display name, so **Staging** in the UI is `staging` here. A
+wrong value cannot fail at run time — this package makes no network calls — so the run succeeds and
+`collect` 404s afterwards. See
+[the note in the configuration docs](./docs/CONFIGURATION.md#environment-is-matched-by-uid-not-display-name).
+
 ## Known limitations
 
 - **Sharded CI runs merge automatically, but only at collect time** — point every shard's
   `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
   finds there into one Launch, no extra flag needed (see
   [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)).
+- **A stale `outputDir` is refused, not merged** — each report carries a `runId`, and `qf collect`
+  errors rather than merging files from two different runs. Needs `@qualflare/cli` v0.1.19+; older
+  CLIs merge as before.
 - **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
   supports arbitrary nesting depth.
 

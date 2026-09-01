@@ -92,15 +92,25 @@ jobs:
 
 `qf` auto-detects this reporter's JSON output from its content — no `--format` flag needed.
 
-### Stale-file caveat
+### Stale files are refused, not merged
 
-Co-location in `outputDir` is the *only* merge signal `qualflare-cli collect` uses — there is no run
-identity check. If `outputDir` isn't cleared between runs (a local `cypress run` executed twice
-against the default `./qualflare-results`, or a CI cache/artifact path that persists the directory
-across builds), leftover JSON from a previous run gets silently merged into the current one. This
-matches the convention [Allure](https://allurereport.org/) documents for its own `allure-results`
-directory: clear or freshly create `outputDir` at the start of every run — there is no dedup
-mechanism in `qualflare-cli` that would catch this for you.
+Each report carries `metadata.runId` — the identifier every shard of one run shares and different
+runs do not (`GITHUB_RUN_ID`, `CI_PIPELINE_ID`, and so on; a per-process UUID outside CI). If
+`collect` finds files from more than one run it refuses to upload and names them:
+
+```
+Error: 2 different runs found in the report files:
+    run 17244102887: 1 file(s)  (stale.json)
+    run 17244981923: 2 file(s)  (shard-0.json, shard-1.json)
+  A stale file from an earlier run would be merged into this launch.
+  Clear the output directory before each run, or pass --allow-mixed-runs to upload anyway
+```
+
+Clearing `outputDir` at the start of each run is still the tidier habit — in CI it is usually free,
+since the workspace is fresh — but forgetting now costs a failed upload rather than a launch
+quietly containing results nobody ran.
+
+Needs `@qualflare/cli` v0.1.19 or newer. An older CLI ignores `runId` and merges as before.
 
 ## Command-log step nesting is two levels only
 

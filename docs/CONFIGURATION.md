@@ -14,7 +14,7 @@ from that file (not from memory) if the two ever drift.
 
 | Option | Env var(s) | Default | Notes |
 |---|---|---|---|
-| `environment` | `QUALFLARE_ENVIRONMENT` → `QF_ENVIRONMENT` | `development` | Must already exist in your Qualflare project (server returns 404 otherwise) — every project seeds `development`/`staging`/`production`/`qa` by default. |
+| `environment` | `QUALFLARE_ENVIRONMENT` → `QF_ENVIRONMENT` | `development` | **The environment's uid (slug), not its display name** — see below. Must already exist in your Qualflare project (server returns 404 otherwise) — every project seeds `development`/`staging`/`production`/`qa` by default. |
 | `language` | `QUALFLARE_LANGUAGE` → `QF_LANGUAGE` | `en-US` | BCP47. |
 | `milestone` | `QUALFLARE_MILESTONE` → `QF_MILESTONE` | `null` | A milestone sequence number; values `< 1` are treated as unset. |
 | `branch` | `QUALFLARE_BRANCH` → `QF_BRANCH` | auto-detected, else `null` | See [Branch/commit auto-detection](#branchcommit-auto-detection) below. |
@@ -34,6 +34,7 @@ from that file (not from memory) if the two ever drift.
 | `maxVideoBytes` | `QUALFLARE_MAX_VIDEO_BYTES` | `50000000` | Per-video cap (bytes), checked via `fs.statSync` before the file is copied into `outputDir` — a cheap local pre-filter so an oversized video is never copied at all, only for `qualflare-cli`'s later upload attempt to get rejected by the server's own 50MB cap. |
 | `outputDir` | `QUALFLARE_OUTPUT_DIR` | `./qualflare-results` | Directory `after:run` writes this process's report file (and any video attachments) into. Always active — this reporter never uploads anything itself; `qualflare-cli collect <outputDir>` reads whatever ends up here. Every JSON file is uniquely named, so multiple shards can safely write into the same directory without colliding — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
 | `shardIndex` | `QUALFLARE_SHARD_INDEX` | unset | This process's 0-based position among parallel shards of the same CI run, stamped onto every case it reports. No shard concept is auto-detected beyond this env var — set it yourself from your CI's own matrix index (e.g. `QUALFLARE_SHARD_INDEX: ${{ matrix.shard }}` in a GitHub Actions matrix). A normal single-process run needs no shard concept at all and can leave this unset — see [`docs/LIMITATIONS.md`](./LIMITATIONS.md). |
+| `runId` | `QUALFLARE_RUN_ID` | CI run id, else a per-process UUID | Identifies the run a report belongs to. Every shard of one CI run resolves the same value (`GITHUB_RUN_ID`, `CI_PIPELINE_ID`, …), so `qf collect` can tell shards of this run apart from a file left over by an earlier one and refuse to merge them. Needs `@qualflare/cli` v0.1.19+. Only set it yourself if your CI is not auto-detected and you shard. |
 | `enabled` | `QUALFLARE_ENABLED` | `true` | `false` fully disables accumulation and report writing (a complete no-op) but still registers no-op Cypress task handlers so `cy.task()` calls from the browser side never error. |
 
 ## Branch/commit auto-detection
@@ -60,3 +61,34 @@ The `git` subprocess is skipped entirely (no process forked) once both branch an
 | Bitbucket Pipelines | `BITBUCKET_BUILD_NUMBER` | constructed from `BITBUCKET_GIT_HTTP_ORIGIN` + pipeline path | `BITBUCKET_PR_ID` |
 
 A `ci*` option always overrides auto-detection for that specific field, independent of the others (e.g. you can override just `ciRunUrl` while leaving `ciProvider`/`ciBuildNumber`/`ciPrNumber` auto-detected).
+
+
+## `environment` is matched by uid, not display name
+
+The server resolves this value against the environment's **uid** (its slug), never the name shown
+in the UI:
+
+```sql
+SELECT * FROM environments WHERE project_id = $1 AND uid = $2;
+```
+
+Every project is seeded with four environments whose uid is lowercase and whose display name is
+capitalized:
+
+| Shown in the UI | Value to use here |
+|---|---|
+| Development | `development` |
+| Staging | `staging` |
+| Production | `production` |
+| QA | `qa` |
+
+So the environment you see as **Staging** is `staging` here. This is worth stating plainly because
+the obvious reading of "must already exist" is that a 404 means you forgot to create it — when in
+fact it exists, and the uid simply is not what the UI showed you.
+
+It also fails late. This plugin makes no network calls, so a wrong value cannot fail during
+`cypress run` — the run completes and writes a valid report. The 404 arrives afterwards, from
+`qualflare-cli collect`, pointing at the CLI rather than at the config line that caused it.
+
+If `collect` returns a 404 for an environment you can plainly see in the project, open its settings
+and use the uid shown there.
