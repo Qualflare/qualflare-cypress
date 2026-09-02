@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Per-attempt execution history on every retried test, sent as `Case.attempts`.
+
+  `collapseAttempts` already tracked every attempt of a retried test and then kept only the
+  final one, so `retryCount`/`isFlaky` said a test retried while the reason it failed the
+  first time was discarded — most visibly when the retry passed, which is exactly when the
+  collapsed `error` is dropped too.
+
+  Each attempt's status, duration and error is now sent individually, including the final
+  one. A test that was not retried sends nothing, and steps/labels/attachments still come
+  from the final attempt only (an abandoned attempt's step trace would misrepresent one
+  execution as two). Requires an API that stores attempt history; older servers ignore the
+  field.
+
 ## 0.3.0
 
 ### Added

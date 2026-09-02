@@ -32,6 +32,8 @@ export function flushCase(test: Mocha.Test, attempts: AttemptSnapshot[]): void {
     duration: msToNs(collapsed.duration),
     retryCount: collapsed.retryCount,
     isFlaky: collapsed.isFlaky,
+    // Already nanoseconds — collapseAttempts converts, unlike `duration` above.
+    attempts: collapsed.attempts,
     error: collapsed.error,
     steps: collapsed.steps,
     // qualflare.* author-facing metadata API calls (labels/links/tags/
