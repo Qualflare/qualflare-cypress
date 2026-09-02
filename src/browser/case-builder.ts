@@ -1,5 +1,6 @@
 import { msToNs } from '../shared/duration.js';
-import type { Attachment, CasePriority, CaseStatus, Label, Link, Step } from '../shared/types.js';
+import { MAX_ATTEMPTS_PER_CASE } from '../shared/constants.js';
+import type { Attachment, Attempt, CasePriority, CaseStatus, Label, Link, Step } from '../shared/types.js';
 import type { ManualStepRecord, TestMetadataSnapshot } from './test-metadata-buffer.js';
 
 /** One attempt of a test — Cypress's built-in retry mechanism re-runs the
@@ -29,6 +30,11 @@ export interface CollapsedResult {
   duration: number;
   retryCount: number;
   isFlaky: boolean;
+  /** Per-attempt history, present only when the test actually retried (>= 2
+   * attempts). Durations are already NANOSECONDS here, unlike `duration`
+   * above — the same convention `steps` follows in this module, since both
+   * are wire-shaped types where the unit is part of the contract. */
+  attempts?: Attempt[];
   error?: string;
   /** Only the FINAL attempt's steps — an abandoned (retried) attempt's step
    * trace would misrepresent a single execution as if the same commands ran
@@ -80,6 +86,56 @@ function combineSteps(autoSteps: Step[] | undefined, manualSteps: ManualStepReco
  * not per logical test — so the caller is responsible for grouping
  * attempts by a stable per-test key (this function only does the collapse).
  */
+/**
+ * Builds the per-attempt history, or `undefined` when there is nothing worth
+ * sending.
+ *
+ * Unlike the rest of `collapseAttempts`, which keeps only the final attempt's
+ * data, this preserves every attempt — that is the entire point. `retryCount`
+ * and `isFlaky` say a test retried; this says what went wrong each time.
+ *
+ * # Why a single attempt sends nothing
+ *
+ * The server discards a one-element array (there is no history in a test that
+ * ran once — its status, duration and error are already on the Case), so
+ * sending one spends payload against the 10MB body limit for a dropped row.
+ *
+ * # Why the whole error string goes into `message`
+ *
+ * Cypress hands us `${message}\n${stack}` already flattened by
+ * `mocha-listener.ts`'s `formatError`, with no separate stack field to read.
+ * Splitting on the first newline to fill `trace` would look tidier and would
+ * corrupt every multiline assertion message — which Cypress produces routinely
+ * ("expected X to deep equal Y" wraps). The server truncates `message` at 8192
+ * runes rather than rejecting, and the Case's own `error` (65536 runes) still
+ * carries the final attempt's full text, so nothing is actually lost.
+ */
+function buildAttempts(attempts: AttemptSnapshot[]): Attempt[] | undefined {
+  if (attempts.length < 2) {
+    return undefined;
+  }
+
+  // Past the cap the server keeps the first 49 plus the final one and drops the
+  // middle. Mirroring that here means the bytes are never sent, and the FINAL
+  // attempt survives the trim — a plain slice(0, 50) would discard it.
+  let kept = attempts;
+  if (attempts.length > MAX_ATTEMPTS_PER_CASE) {
+    kept = [...attempts.slice(0, MAX_ATTEMPTS_PER_CASE - 1), attempts[attempts.length - 1]!];
+  }
+
+  return kept.map((a, i) => {
+    const attempt: Attempt = {
+      attempt: i + 1,
+      status: a.status,
+      duration: msToNs(a.duration),
+    };
+    if (a.error) {
+      attempt.message = a.error;
+    }
+    return attempt;
+  });
+}
+
 export function collapseAttempts(attempts: AttemptSnapshot[]): CollapsedResult {
   if (attempts.length === 0) {
     throw new Error('collapseAttempts: at least one attempt is required');
@@ -88,12 +144,14 @@ export function collapseAttempts(attempts: AttemptSnapshot[]): CollapsedResult {
   const retryCount = attempts.length - 1;
   const isFlaky = retryCount > 0 && final.status === 'passed' && attempts.some((a) => a.status !== 'passed');
   const duration = attempts.reduce((sum, a) => sum + a.duration, 0);
+  const attemptHistory = buildAttempts(attempts);
 
   return {
     status: final.status,
     duration,
     retryCount,
     isFlaky,
+    ...(attemptHistory ? { attempts: attemptHistory } : {}),
     error: final.status === 'passed' ? undefined : final.error,
     steps: combineSteps(final.steps, final.manualSteps),
     labels: final.labels,
