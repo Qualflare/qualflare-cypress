@@ -1,5 +1,6 @@
 import { msToNs } from '../shared/duration.js';
-import { MAX_ATTEMPTS_PER_CASE } from '../shared/constants.js';
+import { MAX_ATTEMPTS_PER_CASE, MAX_ATTEMPT_MESSAGE_RUNES } from '../shared/constants.js';
+import { truncateRunes } from '../shared/text.js';
 import type { Attachment, Attempt, CasePriority, CaseStatus, Label, Link, Step } from '../shared/types.js';
 import type { ManualStepRecord, TestMetadataSnapshot } from './test-metadata-buffer.js';
 
@@ -130,7 +131,10 @@ function buildAttempts(attempts: AttemptSnapshot[]): Attempt[] | undefined {
       duration: msToNs(a.duration),
     };
     if (a.error) {
-      attempt.message = a.error;
+      // Bounded to what the server stores. The whole formatted error goes into
+      // `message` (see the note above), so this single field carries the stack
+      // too and is what makes an attempt unboundedly large.
+      attempt.message = truncateRunes(a.error, MAX_ATTEMPT_MESSAGE_RUNES);
     }
     return attempt;
   });
