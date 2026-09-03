@@ -120,9 +120,9 @@ wrong value cannot fail at run time — this package makes no network calls — 
   CLIs merge as before.
 - **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
   supports arbitrary nesting depth.
-- **An all-passing spec's video is not captured.** Cypress records one video per spec, and it
-  is only copied when at least one case in that spec failed — a green run with `video: true`
-  produces no video attachment.
+- **An all-passing spec's video is not captured by default.** Cypress records one video per spec,
+  and it is only copied when a case in that spec failed. Set `videoOnFailureOnly: false` to keep a
+  green spec's video too; uploading it is separately opt-in via the CLI's `--upload-artifacts`.
 - **Step timing is an approximation** — command-log steps are timed from log events, not from
   instrumented start/stop boundaries. `qualflare.step()` timing is exact.
 - **`parameter()` outside a step is not masked** — `masked` is a display hint for the UI; the
