@@ -5,7 +5,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 A native Cypress reporter for [Qualflare](https://qualflare.com) — captures test results directly
-from your Cypress run: suite/test status, real retry counts, screenshots, step-by-step command
+from your Cypress run: suite/test status, per-attempt retry history, screenshots, step-by-step command
 traces, and author-facing metadata (labels, links, tags, custom attachments) — and writes them into
 a report directory that [`qualflare-cli`](https://github.com/Qualflare/qualflare-cli) uploads. No
 post-hoc file parsing, no intermediate report format to hand-roll, no network access needed from
@@ -110,7 +110,6 @@ wrong value cannot fail at run time — this package makes no network calls — 
 [the note in the configuration docs](./docs/CONFIGURATION.md#environment-is-matched-by-uid-not-display-name).
 
 ## Known limitations
-
 - **Sharded CI runs merge automatically, but only at collect time** — point every shard's
   `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
   finds there into one Launch, no extra flag needed (see
@@ -120,6 +119,23 @@ wrong value cannot fail at run time — this package makes no network calls — 
   CLIs merge as before.
 - **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
   supports arbitrary nesting depth.
+- **An all-passing spec's video is not captured.** Cypress records one video per spec, and it
+  is only copied when at least one case in that spec failed — a green run with `video: true`
+  produces no video attachment.
+- **Step timing is an approximation** — command-log steps are timed from log events, not from
+  instrumented start/stop boundaries. `qualflare.step()` timing is exact.
+- **`parameter()` outside a step is not masked** — `masked` is a display hint for the UI; the
+  server never redacts the value, so never put a real secret in one. See
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#qualflareparameter-outside-a-step-has-no-masking).
+- **Attachment caps are two budgets, not one pool** — `maxAttachmentBytes` bounds a single
+  attachment and `maxTotalAttachmentBytes` the whole run; anything over either is dropped
+  outright rather than truncated. Raising them is the easiest way to push a request past
+  `/collect`'s body limit. See
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#per-caseper-attachment-caps-are-independent-not-pooled).
+- **Retries carry per-attempt errors, but everything else is the final attempt** — `Case.attempts`
+  records each attempt's status, duration and error; steps, labels, links, tags, priority,
+  properties and attachments come from the last attempt only, so an abandoned attempt's step trace
+  is discarded rather than replayed alongside the final one.
 
 Full details in [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md).
 

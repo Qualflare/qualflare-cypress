@@ -143,6 +143,26 @@ precisely, once its wrapped commands genuinely finish. If there's a gap between 
 called and when its wrapped commands actually reach the front of Cypress's command queue (e.g. other
 already-queued work ahead of it), that gap is counted toward the step's reported duration.
 
+## Retries: per-attempt error detail, final-attempt everything else
+
+`Case.attempts` carries each attempt's status, duration and error, so a retried test reports
+"attempt 1 failed with error X, attempt 2 passed" rather than collapsing to the final outcome.
+`@qualflare/cucumberjs` and `@qualflare/playwright` send the same structure.
+
+Everything *else* still comes from the final attempt: steps, labels, links, tags, description,
+priority, properties and attachments. That is deliberate rather than a schema limit. An abandoned
+attempt's step trace, replayed alongside the final one's, would misrepresent a single execution as
+if the same steps ran twice — so earlier attempts' steps are discarded, never merged.
+
+Two consequences worth knowing:
+
+- A test that was **not** retried sends no `attempts` at all. There is no history in a run that
+  happened once, and the server discards a single-element array, so sending one would only spend
+  payload against the collect body limit.
+- Past 50 attempts the server keeps the first 49 plus the final one and drops the middle. A test
+  retrying more than fifty times is pathological; the launch still succeeds and `retryCount` still
+  reflects the true total.
+
 ## `qualflare.parameter()` outside a step has no masking
 
 The wire contract has no top-level `Parameter[]` on a `Case` — only `Step.parameters` exists. A
