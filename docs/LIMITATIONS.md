@@ -13,8 +13,11 @@ resolves `localVideoPath` into a real upload (its own presigned-URL flow to R2) 
 `collect` against that directory. Two sources:
 
 - Cypress's own per-spec recording (`after:spec`'s `results.video`), copied and attached to the
-  first FAILING case in that spec — only when at least one case failed (an all-passing spec's video
-  has little diagnostic value and isn't copied). Since Cypress records one video per spec, not per
+  first FAILING case in that spec. By DEFAULT only when at least one case failed — an all-passing
+  spec's video has little diagnostic value and the bytes were not worth spending. Set
+  `videoOnFailureOnly: false` to attach a green spec's video too (to the spec's first case); with
+  the CLI's `--upload-artifacts` gate deciding what actually uploads, that cost is now settled at
+  collect time rather than here. Since Cypress records one video per spec, not per
   test, there is no exact owning case; attaching to the first failure avoids double-counting the same
   object's bytes against workspace storage quota, which attaching to every failing case would.
 - `qualflare.attachmentFromFile()` called with a video path, copied and attached to whichever test

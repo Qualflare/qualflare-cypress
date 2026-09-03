@@ -92,17 +92,24 @@ export function registerEvents(
     // QA engineer actually wants to watch) and, being a single Case row,
     // avoids double-counting the same copied file's bytes toward workspace
     // storage quota the way attaching it to every failing case would.
-    // Skipped entirely for an all-passing spec: a video with nothing to
-    // investigate has little diagnostic value and isn't worth copying.
+    // An all-passing spec is skipped by DEFAULT (`videoOnFailureOnly`): a video
+    // with nothing to investigate had little diagnostic value and was not worth
+    // the bytes. Set it false to keep those too — with the CLI's
+    // --upload-artifacts gate in front, the storage cost is now settled at
+    // upload time rather than here, so this no longer has to be the only answer.
     if (results.video) {
       const failedCase = cases.find((c) => FAILURE_STATUSES.has(c.status));
-      if (failedCase) {
+      const owner = failedCase ?? (config.videoOnFailureOnly ? undefined : cases[0]);
+      if (owner) {
         const copied = copyVideoAttachment(results.video, config.outputDir, config.maxVideoBytes);
         if (copied) {
-          attachVideo(failedCase, copied);
+          attachVideo(owner, copied);
         }
       } else {
-        logger.info(`spec ${spec.relative} recorded a video but no test failed — not attached.`);
+        logger.info(
+          `spec ${spec.relative} recorded a video but no test failed — not attached. ` +
+            `Set videoOnFailureOnly: false to attach an all-passing spec's video too.`,
+        );
       }
     }
 
