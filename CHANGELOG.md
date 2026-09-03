@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.5.0
+
+### Added
+
+- **`videoOnFailureOnly`** (`QUALFLARE_VIDEO_ON_FAILURE_ONLY`, default `true`). A spec's recording
+  was only ever copied when a test in it failed, so a green run with `video: true` produced no video
+  and nothing said why. Set it `false` to attach an all-passing spec's video too, to that spec's
+  first case.
+
+  The default is unchanged, so existing runs behave exactly as before. The storage reasoning that
+  made failure-only the only option now lives a layer up: `qf collect` uploads no heavy artifact
+  unless `--upload-artifacts` asks, so what reaches storage is decided at collect time.
+
 ## 0.4.0
 
 ### Added
