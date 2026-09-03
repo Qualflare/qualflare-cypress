@@ -41,6 +41,11 @@ export interface QualflareCypressOptions {
    * cap — raising this past 50MB only wastes an upload attempt the server
    * will reject. */
   maxVideoBytes?: number;
+  /** When true (the default), a spec's video is only attached if a test in it
+   * failed. False attaches an all-passing spec's video too, to the first case
+   * in the spec. The upload itself is gated separately by the CLI's
+   * `--upload-artifacts`. */
+  videoOnFailureOnly?: boolean;
   /** `false` fully disables accumulation/POST (a complete no-op) but still
    * registers no-op `on('task', ...)` handlers so `cy.task()` calls from the
    * browser side never error with "no handler registered for task." */
@@ -81,6 +86,7 @@ export interface ResolvedPluginConfig {
   maxAttachmentBytes: number;
   maxTotalAttachmentBytes: number;
   maxVideoBytes: number;
+  videoOnFailureOnly: boolean;
   enabled: boolean;
   outputDir: string;
   shardIndex?: number;
@@ -202,6 +208,7 @@ export function resolveConfig(
     maxTotalAttachmentBytes:
       options.maxTotalAttachmentBytes ?? envInt('QUALFLARE_MAX_TOTAL_ATTACHMENT_BYTES') ?? 750_000,
     maxVideoBytes: options.maxVideoBytes ?? envInt('QUALFLARE_MAX_VIDEO_BYTES') ?? MAX_VIDEO_UPLOAD_BYTES,
+    videoOnFailureOnly: options.videoOnFailureOnly ?? envBool('QUALFLARE_VIDEO_ON_FAILURE_ONLY') ?? true,
     enabled,
     outputDir,
     shardIndex,
