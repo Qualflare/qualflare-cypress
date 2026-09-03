@@ -110,6 +110,7 @@ wrong value cannot fail at run time — this package makes no network calls — 
 [the note in the configuration docs](./docs/CONFIGURATION.md#environment-is-matched-by-uid-not-display-name).
 
 ## Known limitations
+
 - **Sharded CI runs merge automatically, but only at collect time** — point every shard's
   `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
   finds there into one Launch, no extra flag needed (see
