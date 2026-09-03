@@ -69,6 +69,11 @@ qf login my-project "$QUALFLARE_TOKEN" --force
 qf my-project collect ./qualflare-results
 ```
 
+> **Videos are opt-in from `@qualflare/cli` v0.1.20.** `collect` uploads the report itself
+> always, but a video only when asked: `--upload-artifacts=video` (or `QF_UPLOAD_ARTIFACTS=video`).
+> Earlier CLI versions uploaded every video automatically. Nothing is dropped silently — `collect`
+> prints how many it skipped and the exact flag to include them.
+
 That's it — suite/test results, retries, and automatic-on-failure screenshots show up as one Launch
 once `qualflare-cli collect` runs. [`examples/basic/`](./examples/basic) has a runnable project
 demonstrating the same flow end to end, including the `qualflare.*` metadata API.
