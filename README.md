@@ -116,17 +116,6 @@ wrong value cannot fail at run time — this package makes no network calls — 
 
 ## Known limitations
 
-- **Sharded CI runs merge automatically, but only at collect time** — point every shard's
-  `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
-  finds there into one Launch, no extra flag needed (see
-  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)).
-- **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
-  supports arbitrary nesting depth.
-- **An all-passing spec's video is not captured by default.** Cypress records one video per spec,
-  and it is only copied when a case in that spec failed. Set `videoOnFailureOnly: false` to keep a
-  green spec's video too; uploading it is separately opt-in via the CLI's `--upload-artifacts`.
-- **Step timing is an approximation** — command-log steps are timed from log events, not from
-  instrumented start/stop boundaries. `qualflare.step()` timing is exact.
 - **`parameter()` outside a step is not masked** — `masked` is a display hint for the UI; the
   server never redacts the value, so never put a real secret in one. See
   [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#qualflareparameter-outside-a-step-has-no-masking).

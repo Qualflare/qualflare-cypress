@@ -119,37 +119,6 @@ produced a launch that looked entirely plausible and contained results nobody ra
 **On `@qualflare/cli` older than v0.1.21 you get one of those two older behaviours** — a refusal on
 v0.1.19–v0.1.20, and a silent merge before that.
 
-## Command-log step nesting is two levels only
-
-Cypress's command log exposes exactly one typed nesting signal: `LogConfig.type: 'parent' | 'child'`
-(verified directly against Cypress 14.5.4's shipped type declarations — no arbitrary-depth
-group/parent-graph API exists in the typed surface). Auto-captured steps therefore nest at most one
-level deep: a "parent" command's log entry becomes a root step, and any "child" entries under it
-become that step's direct children — never grandchildren.
-
-`qualflare.step()` (the manual, author-facing API) is not subject to this limit — it tracks its own
-independent nesting stack and supports arbitrary depth, since it doesn't rely on Cypress's
-command-log signal at all. Its nesting stack is pushed **synchronously** when `qualflare.step()` is
-called (not deferred into the Cypress command queue) — this is deliberate and required: `fn`'s body
-runs synchronously immediately after `step()` is called, so any `qualflare.parameter()` or nested
-`qualflare.step()` call made directly inside it needs the stack already updated to see the correct
-currently-open step. One consequence: a manual step's *start* time is when `step()` was called, not
-the exact moment its wrapped commands begin executing — see the next section.
-
-## Step timing is an approximation
-
-There is no authoritative per-command elapsed-time field in Cypress's typed command-log API. An
-auto-captured step's duration is measured as wall-clock time between when the log entry was first
-seen (`log:added`) and the last update observed for it (`log:changed`, debounced internally by
-Cypress) — a reasonable approximation, not precise instrumentation.
-
-A manually-declared step (`qualflare.step()`) has its start time captured when `step()` is
-JS-called (see the note above on why this must be synchronous) rather than the exact Cypress-queue
-moment its first wrapped command actually executes — its end time, by contrast, is captured
-precisely, once its wrapped commands genuinely finish. If there's a gap between when `step()` is
-called and when its wrapped commands actually reach the front of Cypress's command queue (e.g. other
-already-queued work ahead of it), that gap is counted toward the step's reported duration.
-
 ## Retries: per-attempt error detail, final-attempt everything else
 
 `Case.attempts` carries each attempt's status, duration and error, so a retried test reports
@@ -196,3 +165,19 @@ Not every Cypress internal log entry becomes a step — entries with an empty `n
 which is a deliberately simple heuristic (no reliably typed signal exists to distinguish
 user-meaningful commands/assertions from Cypress's internal bookkeeping entries). This may need
 refinement once exercised against real command-log output from a variety of live Cypress projects.
+
+## Not limitations of this reporter
+
+Things Cypress itself does not do. They are recorded here because people ask why a Cypress launch
+looks different from the other reporters' — not because anything is being withheld. Each would need
+a change in Cypress, not here.
+
+**Command-log nesting is two levels deep.** Cypress's command log exposes exactly one typed
+nesting signal — `LogConfig.type: 'parent' | 'child'` (verified against Cypress 14.5.4's shipped type
+declarations; no arbitrary-depth group API exists in the typed surface). Auto-captured steps
+therefore nest at most one level. `qualflare.step()` tracks its own stack and nests arbitrarily deep,
+so use it where structure matters.
+
+**Auto-captured step timing is approximate.** Command-log steps are timed from log events rather
+than instrumented start/stop boundaries, so their durations are indicative. `qualflare.step()` timing
+is exact — real elapsed time around the awaited body.
