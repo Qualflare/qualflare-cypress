@@ -139,14 +139,22 @@ Two consequences worth knowing:
   retrying more than fifty times is pathological; the launch still succeeds and `retryCount` still
   reflects the true total.
 
-## `qualflare.parameter()` outside a step has no masking
+## `parameter()` masking redacts the value
 
-The wire contract has no top-level `Parameter[]` on a `Case` — only `Step.parameters` exists. A
-`qualflare.parameter()` call made while a `qualflare.step()` is open attaches to that step's
-parameters (masking respected); called outside any step, it becomes a `Case.properties` entry
-instead (the only test-level key/value bag the wire contract offers) — and `masked` has no analog on
-a plain string map, so it's silently ignored in that case. This is a real, documented limitation, not
-a bug.
+`{ masked: true }` drops the value before the report is written. The secret never leaves this
+process, so it is not stored server-side and cannot be read back through the API.
+
+Inside a step, the parameter travels as `{ name, masked: true }` with no value, and the Qualflare UI
+renders `••••••` from the flag. Outside any step it lands in the case's `properties`, a flat
+`Record<string, string>` with nowhere to put the flag — so the value itself becomes `••••••`.
+Either way the report carries no secret.
+
+**The value is unrecoverable.** That is the point, but it is worth stating: masking is not a display
+toggle you can undo later. Mask a value you may need to read back and it is gone.
+
+This used to be a display hint only — the real value was sent, stored in plaintext and readable
+through the API, while the UI drew dots over it. Anyone who trusted the name got no protection at
+all, which is why the docs had to say "never put a real secret in one". They no longer do.
 
 ## Per-case/per-attachment caps are independent, not pooled
 

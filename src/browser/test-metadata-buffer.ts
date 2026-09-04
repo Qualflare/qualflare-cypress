@@ -9,6 +9,7 @@ import {
 } from '../shared/constants.js';
 import { logger } from '../shared/logger.js';
 import type { Attachment, CasePriority, CaseStatus, Label, Link, LinkType, Parameter } from '../shared/types.js';
+import { buildParameter, propertyValue } from '../shared/parameters.js';
 
 /** One manually-declared step (`qualflare.step()`), tracked entirely
  * separately from `CommandLogBuffer`'s auto-captured command-log steps (see
@@ -245,13 +246,10 @@ export class TestMetadataBuffer {
             'calls within this step will be dropped.',
         );
       }
-      const parameter: Parameter = { name };
-      if (value !== undefined) parameter.value = value;
-      if (opts?.masked) parameter.masked = true;
-      step.parameters.push(parameter);
+      step.parameters.push(buildParameter(name, value, opts?.masked));
       return;
     }
-    this.properties[name] = value ?? '';
+    this.properties[name] = propertyValue(value, opts?.masked);
   }
 
   /** `encoding` defaults to `'utf8'`: `content` is treated as plain text and

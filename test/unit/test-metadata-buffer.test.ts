@@ -154,7 +154,9 @@ describe('TestMetadataBuffer', () => {
       expect(snapshot.manualSteps).toHaveLength(1);
       expect(snapshot.manualSteps?.[0]?.parameters).toStrictEqual([
         { name: 'retries', value: '2' },
-        { name: 'secret', value: 'hunter2', masked: true },
+        // No `value`: a masked parameter is redacted here, so the secret never
+        // leaves the browser. See src/shared/parameters.ts.
+        { name: 'secret', masked: true },
       ]);
     });
 
