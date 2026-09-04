@@ -116,28 +116,16 @@ wrong value cannot fail at run time — this package makes no network calls — 
 
 ## Known limitations
 
-- **Sharded CI runs merge automatically, but only at collect time** — point every shard's
-  `cypress run` at the same shared `outputDir`; `qualflare-cli collect` merges every report file it
-  finds there into one Launch, no extra flag needed (see
-  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)).
-- **A stale `outputDir` is refused, not merged** — each report carries a `runId`, and `qf collect`
-  errors rather than merging files from two different runs. Needs `@qualflare/cli` v0.1.19+; older
-  CLIs merge as before.
-- **Command-log step nesting is two levels only** (Cypress's own API limit) — `qualflare.step()`
-  supports arbitrary nesting depth.
-- **An all-passing spec's video is not captured by default.** Cypress records one video per spec,
-  and it is only copied when a case in that spec failed. Set `videoOnFailureOnly: false` to keep a
-  green spec's video too; uploading it is separately opt-in via the CLI's `--upload-artifacts`.
-- **Step timing is an approximation** — command-log steps are timed from log events, not from
-  instrumented start/stop boundaries. `qualflare.step()` timing is exact.
-- **`parameter()` outside a step is not masked** — `masked` is a display hint for the UI; the
-  server never redacts the value, so never put a real secret in one. See
-  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#qualflareparameter-outside-a-step-has-no-masking).
-- **Attachment caps are two budgets, not one pool** — `maxAttachmentBytes` bounds a single
-  attachment and `maxTotalAttachmentBytes` the whole run; anything over either is dropped
-  outright rather than truncated. Raising them is the easiest way to push a request past
-  `/collect`'s body limit. See
-  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#per-caseper-attachment-caps-are-independent-not-pooled).
+- **A masked `parameter()` value is redacted, not recoverable** — `{ masked: true }` now drops the
+  value before the report is written, so the secret never leaves the machine. Outside a step it
+  becomes `••••••` in the case's `properties`, which is a flat map with nowhere to put the flag.
+  There is no way to read the real value back afterwards. See
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#parameter-masking-redacts-the-value).
+- **Attachment caps still exist, but no longer risk the launch** — `maxAttachmentBytes` (5MB)
+  bounds one attachment and `maxTotalAttachmentBytes` (10MB) the whole run; anything over either is
+  dropped. Needs `@qualflare/cli` v0.1.22+, which uploads attachments out of band — on an older CLI
+  these limits can push the request past the server's body limit and fail the whole launch. See
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md#attachment-caps).
 - **Retries carry per-attempt errors, but everything else is the final attempt** — `Case.attempts`
   records each attempt's status, duration and error; steps, labels, links, tags, priority,
   properties and attachments come from the last attempt only, so an abandoned attempt's step trace

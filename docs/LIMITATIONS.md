@@ -95,56 +95,29 @@ jobs:
 
 `qf` auto-detects this reporter's JSON output from its content — no `--format` flag needed.
 
-### Stale files are refused, not merged
+### A leftover report does not need clearing
 
 Each report carries `metadata.runId` — the identifier every shard of one run shares and different
-runs do not (`GITHUB_RUN_ID`, `CI_PIPELINE_ID`, and so on; a per-process UUID outside CI). If
-`collect` finds files from more than one run it refuses to upload and names them:
+runs do not (`GITHUB_RUN_ID`, `CI_PIPELINE_ID`, and so on; a per-process UUID outside CI). When
+`collect` finds files from more than one run it uploads the run that just finished and says what it
+left out:
 
 ```
-Error: 2 different runs found in the report files:
-    run 17244102887: 1 file(s)  (stale.json)
-    run 17244981923: 2 file(s)  (shard-0.json, shard-1.json)
-  A stale file from an earlier run would be merged into this launch.
-  Clear the output directory before each run, or pass --allow-mixed-runs to upload anyway
+ignored 1 file(s) from 1 earlier run(s) (--allow-mixed-runs to include them)
+Processing 2 test result file(s)...
+OK Test results collected successfully
 ```
 
-Clearing `outputDir` at the start of each run is still the tidier habit — in CI it is usually free,
-since the workspace is fresh — but forgetting now costs a failed upload rather than a launch
-quietly containing results nobody ran.
+Nothing is deleted — the older files stay on disk, they are simply not uploaded.
+`--allow-mixed-runs` merges every run into one launch instead, which is occasionally what you want
+when several tools write into one directory.
 
-Needs `@qualflare/cli` v0.1.19 or newer. An older CLI ignores `runId` and merges as before.
+There was a period where this was stricter than it needed to be: `collect` refused the whole upload
+and left you to clear the directory by hand. Before that it merged the stale file silently, which
+produced a launch that looked entirely plausible and contained results nobody ran.
 
-## Command-log step nesting is two levels only
-
-Cypress's command log exposes exactly one typed nesting signal: `LogConfig.type: 'parent' | 'child'`
-(verified directly against Cypress 14.5.4's shipped type declarations — no arbitrary-depth
-group/parent-graph API exists in the typed surface). Auto-captured steps therefore nest at most one
-level deep: a "parent" command's log entry becomes a root step, and any "child" entries under it
-become that step's direct children — never grandchildren.
-
-`qualflare.step()` (the manual, author-facing API) is not subject to this limit — it tracks its own
-independent nesting stack and supports arbitrary depth, since it doesn't rely on Cypress's
-command-log signal at all. Its nesting stack is pushed **synchronously** when `qualflare.step()` is
-called (not deferred into the Cypress command queue) — this is deliberate and required: `fn`'s body
-runs synchronously immediately after `step()` is called, so any `qualflare.parameter()` or nested
-`qualflare.step()` call made directly inside it needs the stack already updated to see the correct
-currently-open step. One consequence: a manual step's *start* time is when `step()` was called, not
-the exact moment its wrapped commands begin executing — see the next section.
-
-## Step timing is an approximation
-
-There is no authoritative per-command elapsed-time field in Cypress's typed command-log API. An
-auto-captured step's duration is measured as wall-clock time between when the log entry was first
-seen (`log:added`) and the last update observed for it (`log:changed`, debounced internally by
-Cypress) — a reasonable approximation, not precise instrumentation.
-
-A manually-declared step (`qualflare.step()`) has its start time captured when `step()` is
-JS-called (see the note above on why this must be synchronous) rather than the exact Cypress-queue
-moment its first wrapped command actually executes — its end time, by contrast, is captured
-precisely, once its wrapped commands genuinely finish. If there's a gap between when `step()` is
-called and when its wrapped commands actually reach the front of Cypress's command queue (e.g. other
-already-queued work ahead of it), that gap is counted toward the step's reported duration.
+**On `@qualflare/cli` older than v0.1.21 you get one of those two older behaviours** — a refusal on
+v0.1.19–v0.1.20, and a silent merge before that.
 
 ## Retries: per-attempt error detail, final-attempt everything else
 
@@ -166,25 +139,43 @@ Two consequences worth knowing:
   retrying more than fifty times is pathological; the launch still succeeds and `retryCount` still
   reflects the true total.
 
-## `qualflare.parameter()` outside a step has no masking
+## `parameter()` masking redacts the value
 
-The wire contract has no top-level `Parameter[]` on a `Case` — only `Step.parameters` exists. A
-`qualflare.parameter()` call made while a `qualflare.step()` is open attaches to that step's
-parameters (masking respected); called outside any step, it becomes a `Case.properties` entry
-instead (the only test-level key/value bag the wire contract offers) — and `masked` has no analog on
-a plain string map, so it's silently ignored in that case. This is a real, documented limitation, not
-a bug.
+`{ masked: true }` drops the value before the report is written. The secret never leaves this
+process, so it is not stored server-side and cannot be read back through the API.
 
-## Per-case/per-attachment caps are independent, not pooled
+Inside a step, the parameter travels as `{ name, masked: true }` with no value, and the Qualflare UI
+renders `••••••` from the flag. Outside any step it lands in the case's `properties`, a flat
+`Record<string, string>` with nowhere to put the flag — so the value itself becomes `••••••`.
+Either way the report carries no secret.
 
-`maxAttachmentBytes` (per file) and `maxTotalAttachmentBytes` (per run) govern screenshots and
-Node-resolved `attachmentFromFile()` calls. The `MAX_ATTACHMENTS_PER_CASE` count cap on manually
-attached content (`qualflare.attachment()`/`attachmentFromFile()`) is enforced independently of how
-many screenshots a test also captured in the same run — the combined total across both sources isn't
-currently capped as one pool.
+**The value is unrecoverable.** That is the point, but it is worth stating: masking is not a display
+toggle you can undo later. Mask a value you may need to read back and it is gone.
 
-Similarly, the command-log step cap and the manual-step cap (`qualflare.step()`) each track their own
-count against the same limit value, rather than sharing one combined budget per test.
+This used to be a display hint only — the real value was sent, stored in plaintext and readable
+through the API, while the UI drew dots over it. Anyone who trusted the name got no protection at
+all, which is why the docs had to say "never put a real secret in one". They no longer do.
+
+## Attachment caps
+
+`maxAttachmentBytes` (5MB) bounds a single attachment; `maxTotalAttachmentBytes` (10MB) bounds the
+run. Anything over either is dropped with a warning rather than truncated — a half-written screenshot
+is worse than none.
+
+They used to be 1.5MB and 750KB, and the run budget being *smaller* than the per-item cap was the
+tell: every attachment was base64-inlined into `/collect`'s 10MB body, competing with the test
+results, so the per-run number had to assume this process was one shard among many. It was a poor
+assumption either way — the cap is per process, and `collect` merges every shard into one request,
+so eleven shards each honouring 750KB still assembled a body over the limit and lost the whole
+launch to a 413.
+
+`@qualflare/cli` v0.1.22+ uploads attachments through the presigned-URL flow and references a
+`storageKey`, so the body no longer grows with them. These numbers now only bound the report file on
+disk.
+
+**They require that CLI version.** An older one still inlines, and these limits would push it past
+the body limit — the failure this change exists to remove. They stay bounded rather than unlimited
+so the worst case is one launch rather than an out-of-memory.
 
 ## Noise-filtering on command-log steps is a simple heuristic
 
@@ -192,3 +183,19 @@ Not every Cypress internal log entry becomes a step — entries with an empty `n
 which is a deliberately simple heuristic (no reliably typed signal exists to distinguish
 user-meaningful commands/assertions from Cypress's internal bookkeeping entries). This may need
 refinement once exercised against real command-log output from a variety of live Cypress projects.
+
+## Not limitations of this reporter
+
+Things Cypress itself does not do. They are recorded here because people ask why a Cypress launch
+looks different from the other reporters' — not because anything is being withheld. Each would need
+a change in Cypress, not here.
+
+**Command-log nesting is two levels deep.** Cypress's command log exposes exactly one typed
+nesting signal — `LogConfig.type: 'parent' | 'child'` (verified against Cypress 14.5.4's shipped type
+declarations; no arbitrary-depth group API exists in the typed surface). Auto-captured steps
+therefore nest at most one level. `qualflare.step()` tracks its own stack and nests arbitrarily deep,
+so use it where structure matters.
+
+**Auto-captured step timing is approximate.** Command-log steps are timed from log events rather
+than instrumented start/stop boundaries, so their durations are indicative. `qualflare.step()` timing
+is exact — real elapsed time around the awaited body.
