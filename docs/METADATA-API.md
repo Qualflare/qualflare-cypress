@@ -90,8 +90,17 @@ it('processes a payment', () => {
 });
 ```
 
-`masked` is a **display hint only** — the server does not redact the value. Do not rely on it for
-real secret protection.
+`masked` **redacts the value before the report is written.** The secret never leaves this process:
+it is not stored server-side and cannot be read back through the API. Inside a step the parameter
+travels as `{ name, masked: true }` with no value and the UI renders `••••••` from the flag; outside
+one it lands in `Case.properties`, a flat map with nowhere for the flag, so the value itself becomes
+`••••••`.
+
+A masked value is therefore **unrecoverable** — that is the point, but it is not a display toggle you
+can undo later.
+
+Requires v0.6.0 or newer of this package. Before that, `masked` was a display hint only: the real value
+was sent, stored in plaintext and readable through the API, while only the UI drew dots over it.
 
 ## `qualflare.attachment(name, content, opts?)`
 
