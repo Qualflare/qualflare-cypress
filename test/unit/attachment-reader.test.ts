@@ -39,6 +39,11 @@ function writeTempFile(name: string, bytes: number): string {
   return filePath;
 }
 
+// These use text/plain deliberately. Images no longer reach the inline path at
+// all -- they are copied into outputDir and referenced by localImagePath -- so
+// asserting the base64/budget behaviour with a .png would be asserting a route
+// screenshots no longer take. Text attachments still inline, and the budget
+// still bounds them, which is what these cover.
 describe('resolveAttachments', () => {
   it('returns undefined for an empty/absent attachment list', async () => {
     expect(await resolveAttachments(undefined, BASE_CONFIG, new AttachmentBudget(1_000_000))).toBeUndefined();
@@ -58,9 +63,9 @@ describe('resolveAttachments', () => {
 
   it('reads a within-budget file and base64-encodes its exact bytes', async () => {
     const original = Buffer.from('hello qualflare screenshot bytes');
-    const filePath = path.join(tmpDir, 'shot.png');
+    const filePath = path.join(tmpDir, 'shot.txt');
     fs.writeFileSync(filePath, original);
-    const attachments: Attachment[] = [{ name: 'shot', path: filePath, mimeType: 'image/png' }];
+    const attachments: Attachment[] = [{ name: 'shot', path: filePath, mimeType: 'text/plain' }];
 
     const result = await resolveAttachments(attachments, BASE_CONFIG, new AttachmentBudget(1_000_000));
 
@@ -83,13 +88,13 @@ describe('resolveAttachments', () => {
   });
 
   it('stops attaching once the cumulative run budget would be exceeded, keeping earlier ones', async () => {
-    const a = writeTempFile('a.png', 300);
-    const b = writeTempFile('b.png', 300);
-    const c = writeTempFile('c.png', 300);
+    const a = writeTempFile('a.txt', 300);
+    const b = writeTempFile('b.txt', 300);
+    const c = writeTempFile('c.txt', 300);
     const attachments: Attachment[] = [
-      { name: 'a', path: a, mimeType: 'image/png' },
-      { name: 'b', path: b, mimeType: 'image/png' },
-      { name: 'c', path: c, mimeType: 'image/png' },
+      { name: 'a', path: a, mimeType: 'text/plain' },
+      { name: 'b', path: b, mimeType: 'text/plain' },
+      { name: 'c', path: c, mimeType: 'text/plain' },
     ];
     const budget = new AttachmentBudget(700); // fits a+b (600) but not +c (900)
 
@@ -101,8 +106,8 @@ describe('resolveAttachments', () => {
   });
 
   it('a budget shared across multiple resolveAttachments calls (multiple tests in one run) enforces the total, not per-call', async () => {
-    const first = writeTempFile('first.png', 400);
-    const second = writeTempFile('second.png', 400);
+    const first = writeTempFile('first.txt', 400);
+    const second = writeTempFile('second.txt', 400);
     const budget = new AttachmentBudget(600);
 
     const firstResult = await resolveAttachments([{ name: 'first', path: first }], BASE_CONFIG, budget);

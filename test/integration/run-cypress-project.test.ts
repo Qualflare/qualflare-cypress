@@ -178,6 +178,27 @@ describe('qualflare-cypress against a real cypress run', () => {
           expect(att.mimeType).not.toMatch(/^video\//);
         }
       }
+
+      // Cypress captures a screenshot automatically on failure. It must travel
+      // the same way the video does -- copied into outputDir and referenced by
+      // name -- never base64 inside the report.
+      const shot = failing?.attachments?.find((a) => a.mimeType === 'image/png');
+      expect(shot).toBeDefined();
+      expect(shot!.content).toBeUndefined();
+      expect(typeof shot!.localImagePath).toBe('string');
+      const shotPath = path.join(outputDir, shot!.localImagePath!);
+      expect(fs.existsSync(shotPath)).toBe(true);
+      expect(shot!.fileSize).toBe(fs.statSync(shotPath).size);
+      // A real PNG, not merely named one: the upload endpoint cross-checks the
+      // extension against the MIME type it is handed.
+      expect(fs.readFileSync(shotPath).subarray(0, 8)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      );
+      // No image bytes remain inline anywhere in the report.
+      const inlineImages = allCases.flatMap((c) =>
+        (c.attachments ?? []).filter((a) => a.mimeType?.startsWith('image/') && a.content),
+      );
+      expect(inlineImages).toHaveLength(0);
     },
     120_000,
   );
