@@ -57,7 +57,8 @@ describe('qualflare-cypress against a real cypress run', () => {
       } catch (err) {
         throw new Error(
           `outputDir "${outputDir}" could not be read after \`cypress run\` — it likely failed to even ` +
-            `start. exit code: ${result.exitCode}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}\n--- cause ---\n${(err as Error).message}`,
+            `start. exit code: ${result.exitCode}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`,
+          { cause: err },
         );
       }
 
