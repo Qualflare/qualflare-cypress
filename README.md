@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/%40qualflare%2Fcypress.svg)](https://www.npmjs.com/package/@qualflare/cypress)
 [![CI](https://github.com/Qualflare/qualflare-cypress/actions/workflows/ci.yml/badge.svg)](https://github.com/Qualflare/qualflare-cypress/actions/workflows/ci.yml)
+[![Qualflare](https://api.qualflare.com/p/qualflare-cypress/badge.svg)](https://reports.qualflare.com/p/qualflare-cypress/launches)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 A native Cypress reporter for [Qualflare](https://qualflare.com) — captures test results directly
@@ -120,6 +121,18 @@ environment's **uid (slug)**, not its display name, so **Staging** in the UI is 
 wrong value cannot fail at run time — this package makes no network calls — so the run succeeds and
 `collect` 404s afterwards. See
 [the note in the configuration docs](./docs/CONFIGURATION.md#environment-is-matched-by-uid-not-display-name).
+
+## Test reports
+
+This plugin is tested with itself. `e2e/` is a Cypress suite covering this package's own
+behaviour — the metadata API, nested steps, image attachments and per-attempt retry history — run by
+this plugin and uploaded to Qualflare on every merge to `main`. The results below are that suite's,
+reported through the code this README documents:
+
+[![Qualflare](https://api.qualflare.com/p/qualflare-cypress/banner.svg)](https://reports.qualflare.com/p/qualflare-cypress/launches)
+
+Every case there is meant to pass, so a red run is a real regression rather than a fixture that fails
+on purpose. Deliberately-failing cases live in `test/integration/`, which is never uploaded.
 
 ## Known limitations
 
