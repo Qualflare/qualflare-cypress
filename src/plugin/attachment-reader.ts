@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { logger } from '../shared/logger.js';
 import type { Attachment } from '../shared/types.js';
-import { copyVideoAttachment } from './video-writer.js';
+import { copyImageAttachment, copyVideoAttachment } from './video-writer.js';
 
 /** Extensions/mime-prefixes routed through the video-copy flow instead of
  * the inline-base64 path below. Broader than the server's own MIME
@@ -147,6 +147,24 @@ export function resolveAttachments(
       });
       continue;
     }
+    // Screenshots go out of band like video, rather than base64 into the
+    // report. Placed BEFORE the inline branch so a screenshot never reaches it,
+    // and after the video branch so a misnamed artifact cannot be captured
+    // here. A non-image (a log, a JSON blob) returns undefined and falls
+    // straight through to the inline path below, unchanged.
+    if (attachment.content === undefined && attachment.path) {
+      const copied = copyImageAttachment(attachment.path, config.outputDir, config.maxAttachmentBytes);
+      if (copied) {
+        resolved.push({
+          ...attachment,
+          mimeType: copied.mimeType,
+          localImagePath: copied.localImagePath,
+          fileSize: copied.fileSize,
+        });
+        continue;
+      }
+    }
+
     if (attachment.content !== undefined || !attachment.path) {
       // Already has inline content (e.g. from a future metadata-API call
       // that provides content directly), or nothing to read — pass through

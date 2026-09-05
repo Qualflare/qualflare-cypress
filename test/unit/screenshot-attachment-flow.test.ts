@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { MockAgent, setGlobalDispatcher } from 'undici';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AttachmentBudget } from '../../src/plugin/attachment-reader.js';
 import { registerEvents } from '../../src/plugin/events.js';
@@ -59,6 +59,8 @@ function freshOutputDir(): string {
   return dir;
 }
 
+const BASE_OUTPUT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'qf-base-out-'));
+
 const BASE_CONFIG: ResolvedPluginConfig = {
   environment: 'development',
   language: 'en-US',
@@ -72,8 +74,16 @@ const BASE_CONFIG: ResolvedPluginConfig = {
   maxTotalAttachmentBytes: 1_000_000,
   maxVideoBytes: 50_000_000,
   enabled: true,
-  outputDir: './qualflare-results',
+  // A REAL temp directory, not './qualflare-results'. Screenshots are copied
+  // into outputDir now, so a relative default makes any test that forgets to
+  // override it write PNGs into the repo root. Making the shared default safe
+  // means forgetting costs nothing.
+  outputDir: BASE_OUTPUT_DIR,
 };
+
+afterAll(() => {
+  fs.rmSync(BASE_OUTPUT_DIR, { recursive: true, force: true });
+});
 
 let mockAgent: MockAgent;
 
@@ -117,9 +127,12 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
     const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
+    // A REAL directory: screenshots are copied into outputDir now, so the
+    // relative default would write into the repo during the test run.
+    const config = { ...BASE_CONFIG, outputDir: freshOutputDir() };
 
-    registerTasks(on, buffer, BASE_CONFIG, budget, pendingAttachments, testPhaseGate);
-    registerEvents(on, BASE_CONFIG, buffer, pendingAttachments, testPhaseGate);
+    registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
+    registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
     const shotBytes = Buffer.from('fake png bytes');
     const shotPath = path.join(tmpDir, 'failure.png');
@@ -141,7 +154,15 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     expect(drained).toHaveLength(1);
     expect(drained[0]!.attachments).toHaveLength(1);
     expect(drained[0]!.attachments![0]!.name).toBe('failure');
-    expect(drained[0]!.attachments![0]!.content).toBe(shotBytes.toString('base64'));
+    // Copied into outputDir and referenced by name, not base64 in the report.
+    const attached = drained[0]!.attachments![0]!;
+    expect(attached.content).toBeUndefined();
+    expect(attached.localImagePath).toBeDefined();
+    expect(attached.mimeType).toBe('image/png');
+    // The bytes have to actually be there — the CLI is what uploads this file.
+    const copied = path.join(config.outputDir, attached.localImagePath!);
+    expect(fs.readFileSync(copied).equals(shotBytes)).toBe(true);
+    expect(attached.fileSize).toBe(shotBytes.length);
   });
 
   it('does not leak a screenshot into a DIFFERENT case reported afterward', async () => {
@@ -268,9 +289,11 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     const pendingAttachments = new PendingAttachmentQueue();
     const testPhaseGate = new TestPhaseGate();
     const budget = new AttachmentBudget(BASE_CONFIG.maxTotalAttachmentBytes);
+    // A REAL directory: screenshots are copied into outputDir now.
+    const config = { ...BASE_CONFIG, outputDir: freshOutputDir() };
 
-    registerTasks(on, buffer, BASE_CONFIG, budget, pendingAttachments, testPhaseGate);
-    registerEvents(on, BASE_CONFIG, buffer, pendingAttachments, testPhaseGate);
+    registerTasks(on, buffer, config, budget, pendingAttachments, testPhaseGate);
+    registerEvents(on, config, buffer, pendingAttachments, testPhaseGate);
 
     fire('before:spec', fakeSpec('a.cy.ts'));
 
@@ -299,7 +322,12 @@ describe('screenshot -> case attachment flow (real registerEvents + registerTask
     // dropped as orphaned, not swept in alongside it.
     expect(drained[0]!.attachments).toHaveLength(1);
     expect(drained[0]!.attachments![0]!.name).toBe('own-shot');
-    expect(drained[0]!.attachments![0]!.content).toBe(ownShotBytes.toString('base64'));
+    const own = drained[0]!.attachments![0]!;
+    expect(own.content).toBeUndefined();
+    expect(own.localImagePath).toBeDefined();
+    expect(fs.readFileSync(path.join(config.outputDir, own.localImagePath!)).equals(ownShotBytes)).toBe(
+      true,
+    );
   });
 
   it('always writes the Collect payload to outputDir, never POSTs', async () => {
