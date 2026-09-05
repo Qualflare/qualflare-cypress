@@ -12,6 +12,10 @@ export default tseslint.config(
       // resolution (imports '@qualflare/cypress' by its published name, not
       // a relative path) — not part of this repo's own TS project graph.
       'examples/**',
+      // The dogfood suite: a standalone Cypress project that loads the plugin
+      // from built dist/, exactly like the fixtures above. Outside tsconfig's
+      // `include: ['src']`, so type-aware linting cannot parse it.
+      'e2e/**',
       'coverage/**',
       // Scratch state from an unrelated editor/session-memory tool, not part
       // of this package's source.

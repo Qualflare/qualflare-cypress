@@ -18,3 +18,8 @@ examples/**/cypress/videos/
 examples/**/cypress/screenshots/
 examples/**/cypress/downloads/
 examples/**/node_modules/
+
+# Dogfood suite output (e2e/) — the report plus any screenshots it writes.
+e2e-results/
+# Cypress's own artifact dirs for the dogfood suite.
+e2e/.artifacts/
