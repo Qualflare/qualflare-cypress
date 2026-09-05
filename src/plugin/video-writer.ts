@@ -79,3 +79,80 @@ export function copyVideoAttachment(
 
   return { localVideoPath, fileSize, mimeType };
 }
+
+/** Extension -> MIME for the image formats the upload endpoint accepts. Anything
+ * else (`.bmp`, `.svg`) has nowhere to go out of band and stays on the inline
+ * path, which is still bounded by `maxAttachmentBytes` and the run budget. */
+const IMAGE_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+};
+
+export interface ImageCopyResult {
+  /** Filename relative to `outputDir`, same rule as `localVideoPath`. */
+  localImagePath: string;
+  fileSize: number;
+  mimeType: string;
+}
+
+/**
+ * Copies one screenshot into `outputDir` and returns enough to build that
+ * `Attachment` entry's `localImagePath`, so a screenshot travels the same way a
+ * video already does instead of being base64-inlined into the report and from
+ * there into the `/collect` body.
+ *
+ * The MIME type comes from the EXTENSION rather than any declared type: the
+ * upload endpoint cross-checks the two, so a declared type that disagrees with
+ * the file on disk earns a 400 per screenshot.
+ *
+ * Unlike `copyVideoAttachment`, an unsupported extension is NOT warned about.
+ * Every non-image attachment reaches this function on its way to the inline
+ * path, so warning here would fire on ordinary logs and JSON. Returning
+ * undefined is the normal case, not a fault.
+ *
+ * Requires `@qualflare/cli` v0.1.24+, which reads `localImagePath`. An older CLI
+ * ignores it, leaving an attachment with neither content nor storageKey — a row
+ * the server persists from its name alone, showing as an undownloadable
+ * placeholder.
+ */
+export function copyImageAttachment(
+  filePath: string,
+  outputDir: string,
+  maxImageBytes: number,
+): ImageCopyResult | undefined {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = IMAGE_MIME_TYPES_BY_EXTENSION[ext];
+  if (!mimeType) {
+    return undefined;
+  }
+
+  let fileSize: number;
+  try {
+    // Stat BEFORE copying — an oversized file must never be copied just to
+    // discover it should be skipped.
+    fileSize = fs.statSync(filePath).size;
+  } catch (err) {
+    logger.warn(`skipping image attachment "${filePath}": could not stat file: ${(err as Error).message}`);
+    return undefined;
+  }
+  if (fileSize > maxImageBytes) {
+    logger.warn(
+      `skipping image attachment "${filePath}": ${fileSize} bytes exceeds the configured ` +
+        `maxAttachmentBytes cap of ${maxImageBytes} bytes.`,
+    );
+    return undefined;
+  }
+
+  const localImagePath = `${randomUUID()}${ext}`;
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.copyFileSync(filePath, path.join(outputDir, localImagePath));
+  } catch (err) {
+    logger.warn(`skipping image attachment "${filePath}": could not copy file: ${(err as Error).message}`);
+    return undefined;
+  }
+
+  return { localImagePath, fileSize, mimeType };
+}
