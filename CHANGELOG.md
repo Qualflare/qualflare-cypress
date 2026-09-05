@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.0
+
+### Changed
+
+- **Screenshots are written into `outputDir` and referenced by `localImagePath`, instead of being
+  base64-inlined into the report.** They now travel the same way videos and traces already did: the
+  report file carries no image bytes, and the CLI uploads them out of band rather than sending them
+  inside `/collect`'s request body.
+
+  Cypress captures a screenshot on every failure, so this is the reporter where the change matters
+  most. Attachments here always arrive as a path, never as bytes, so there is no in-memory case.
+
+  **Requires `@qualflare/cli` v0.1.24+.** An older CLI does not read the field, and because such an
+  attachment carries neither content nor a storage key the server records it from its name alone —
+  an undownloadable placeholder. Upgrade the CLI first.
+
+- Screenshots upload by default on the CLI side; video and traces remain opt-in. Named kinds are
+  *added* to that default, so `--upload-artifacts=video` no longer turns screenshots off. The new
+  `--upload-artifacts=none` declines every kind, screenshots included.
+
+
 ## 0.6.1
 
 ### Fixed

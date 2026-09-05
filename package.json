@@ -1,6 +1,6 @@
 {
   "name": "@qualflare/cypress",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Native Cypress reporter for the Qualflare test-management platform.",
   "keywords": [
     "qualflare",
