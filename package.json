@@ -11,7 +11,7 @@
     "flaky-tests",
     "test-reporting"
   ],
-  "homepage": "https://qualflare.com",
+  "homepage": "https://qualflare.com/cypress-test-reporting/",
   "bugs": {
     "url": "https://github.com/Qualflare/qualflare-cypress/issues"
   },
