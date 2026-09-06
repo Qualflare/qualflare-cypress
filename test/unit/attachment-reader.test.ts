@@ -96,13 +96,16 @@ describe('resolveAttachments', () => {
       { name: 'b', path: b, mimeType: 'text/plain' },
       { name: 'c', path: c, mimeType: 'text/plain' },
     ];
-    const budget = new AttachmentBudget(700); // fits a+b (600) but not +c (900)
+    // The budget is charged in ENCODED bytes: 300 raw is 400 as base64
+    // (ceil(300/3)*4), and base64 is what the report carries. So this fits
+    // a+b (800) but not +c (1200).
+    const budget = new AttachmentBudget(900);
 
     const result = await resolveAttachments(attachments, BASE_CONFIG, budget);
 
     expect(result).toHaveLength(2);
     expect(result!.map((r) => r.name)).toEqual(['a', 'b']);
-    expect(budget.usedBytes).toBe(600);
+    expect(budget.usedBytes).toBe(800);
   });
 
   it('a budget shared across multiple resolveAttachments calls (multiple tests in one run) enforces the total, not per-call', async () => {
