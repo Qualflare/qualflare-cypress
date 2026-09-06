@@ -123,7 +123,6 @@ v0.1.19–v0.1.20, and a silent merge before that.
 
 `Case.attempts` carries each attempt's status, duration and error, so a retried test reports
 "attempt 1 failed with error X, attempt 2 passed" rather than collapsing to the final outcome.
-`@qualflare/cucumberjs` and `@qualflare/playwright` send the same structure.
 
 Everything *else* still comes from the final attempt: steps, labels, links, tags, description,
 priority, properties and attachments. That is deliberate rather than a schema limit. An abandoned
@@ -138,23 +137,6 @@ Two consequences worth knowing:
 - Past 50 attempts the server keeps the first 49 plus the final one and drops the middle. A test
   retrying more than fifty times is pathological; the launch still succeeds and `retryCount` still
   reflects the true total.
-
-## `parameter()` masking redacts the value
-
-`{ masked: true }` drops the value before the report is written. The secret never leaves this
-process, so it is not stored server-side and cannot be read back through the API.
-
-Inside a step, the parameter travels as `{ name, masked: true }` with no value, and the Qualflare UI
-renders `••••••` from the flag. Outside any step it lands in the case's `properties`, a flat
-`Record<string, string>` with nowhere to put the flag — so the value itself becomes `••••••`.
-Either way the report carries no secret.
-
-**The value is unrecoverable.** That is the point, but it is worth stating: masking is not a display
-toggle you can undo later. Mask a value you may need to read back and it is gone.
-
-This used to be a display hint only — the real value was sent, stored in plaintext and readable
-through the API, while the UI drew dots over it. Anyone who trusted the name got no protection at
-all, which is why the docs had to say "never put a real secret in one". They no longer do.
 
 ## Attachment caps need `@qualflare/cli` v0.1.22+
 
