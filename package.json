@@ -1,15 +1,16 @@
 {
   "name": "@qualflare/cypress",
   "version": "0.7.1",
-  "description": "Native Cypress reporter for the Qualflare test-management platform.",
+  "description": "Native Cypress reporter for Qualflare — captures status, per-attempt retry history, screenshots, command traces and metadata.",
   "keywords": [
     "qualflare",
     "cypress",
+    "cypress-reporter",
     "test-reporter",
-    "e2e",
+    "test-reporting",
     "test-results",
     "flaky-tests",
-    "test-reporting"
+    "e2e"
   ],
   "homepage": "https://qualflare.com/cypress-test-reporting/",
   "bugs": {
